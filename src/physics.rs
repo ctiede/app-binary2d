@@ -637,6 +637,7 @@ impl Primitive for hydro_iso2d::Primitive
     fn velocity_x(self) -> f64   { self.velocity_x() }
     fn velocity_y(self) -> f64   { self.velocity_y() }
     fn mass_density(self) -> f64 { self.density() }
+    fn gas_pressure(self, sound_speed_squared: Option<f64>) -> f64 { self.pressure(sound_speed_squared.unwrap()) }
 }
 
 impl Primitive for hydro_euler::euler_2d::Primitive
@@ -644,4 +645,5 @@ impl Primitive for hydro_euler::euler_2d::Primitive
     fn velocity_x(self) -> f64 { self.velocity(hydro_euler::geometry::Direction::X) }
     fn velocity_y(self) -> f64 { self.velocity(hydro_euler::geometry::Direction::Y) }
     fn mass_density(self) -> f64 { self.mass_density() }
+    fn gas_pressure(self, _: Option<f64>) -> f64 { self.gas_pressure() }
 }

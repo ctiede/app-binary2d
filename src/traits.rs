@@ -45,6 +45,7 @@ pub trait Primitive: Clone + Copy + Send + Sync + hdf5::H5Type {
     fn velocity_x(self) -> f64;
     fn velocity_y(self) -> f64;
     fn mass_density(self) -> f64;
+    fn gas_pressure(self, _: Option<f64>) -> f64;
 }
 
 

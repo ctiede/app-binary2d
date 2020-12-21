@@ -367,9 +367,14 @@ impl Tasks
         Ok(())
     }
 
-    fn write_tracer_output<C: Conserved>(&mut self,
+    fn write_tracer_output<H: Hydrodynamics<Conserved=C>, C: Conserved>(&mut self,
         state: &State<C>,
+        hydro: H,
+        block_data: &Vec<BlockData<C>>,
+        solver: &Solver,
+        mesh: &Mesh,
         model: &kind_config::Form,
+        time: f64,
         app: &App) -> anyhow::Result<()>
     {
         let outdir = app.output_directory()?;
@@ -378,16 +383,18 @@ impl Tasks
         self.write_tracer_output.advance(model.get("toi").into());
 
         println!("write tracers {}", fname);
-        io::write_tracer_output(&fname, &state, &model)?;
+        io::write_tracer_output(&fname, &state, hydro, &block_data, &solver, &mesh, &model, time)?;
 
         Ok(())
     }
 
-    fn perform<C: Conserved>(
+    fn perform<H: Hydrodynamics<Conserved=C>, C: Conserved>(
         &mut self,
         state: &State<C>,
+        hydro: H,
         time_series: &mut Vec<TimeSeriesSample<C>>,
         block_data: &Vec<BlockData<C>>,
+        solver: &Solver,
         mesh: &Mesh,
         model: &Form,
         app: &App) -> anyhow::Result<()>
@@ -410,7 +417,7 @@ impl Tasks
         }
         if state.time / ORBITAL_PERIOD >= self.write_tracer_output.next_time
         {
-            self.write_tracer_output(state, model, app)?;
+            self.write_tracer_output(state, hydro, block_data, solver, mesh, model, state.time, app)?;
         }
         self.tasks_last_performed = Instant::now();
         self.call_count_this_run += 1;
@@ -727,7 +734,7 @@ fn run<S, C>(driver: Driver<S>, app: App, model: Form) -> anyhow::Result<()>
     };
 
 
-    tasks.perform(&state, &mut time_series, &block_data, &mesh, &model, &app)?;
+    tasks.perform(&state, driver.system, &mut time_series, &block_data, &solver, &mesh, &model, &app)?;
 
     while state.time < tfinal
     {
@@ -736,7 +743,7 @@ fn run<S, C>(driver: Driver<S>, app: App, model: Form) -> anyhow::Result<()>
         } else {
             scheme::advance_channels(&mut state, driver.system, &block_data, &mesh, &solver, dt, app.fold);
         }
-        tasks.perform(&state, &mut time_series, &block_data, &mesh, &model, &app)?;
+        tasks.perform(&state, driver.system, &mut time_series, &block_data, &solver, &mesh, &model, &app)?;
     }
     Ok(())
 }

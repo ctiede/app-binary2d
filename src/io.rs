@@ -4,14 +4,17 @@ use hdf5::{File, Group, H5Type};
 use io_logical::verified;
 use io_logical::nicer_hdf5;
 use io_logical::nicer_hdf5::{H5Read, H5Write};
+use ndarray::{ArcArray, Ix2};
 use crate::Tasks;
 
 use crate::traits::{
     Hydrodynamics,
     Conserved,
+    Primitive,
 };
 
 use crate::physics::{
+    Solver,
     ItemizedChange,
 };
 
@@ -19,6 +22,11 @@ use crate::scheme::{
     State,
     BlockSolution,
     BlockData,
+};
+
+use crate::mesh::{
+    Mesh,
+    BlockIndex,
 };
 
 use crate::tracers::{
@@ -144,29 +152,98 @@ fn write_build(group: &Group) -> hdf5::Result<()> {
 
 
 // ============================================================================
-pub fn write_tracer_output<C:Conserved>(filename: &str, state: &State<C>, model: &kind_config::Form) -> hdf5::Result<()>
+#[repr(C)]
+#[derive(hdf5::H5Type, Clone, Copy)]
+pub struct TracerData
+{
+    pub tracer  :  Tracer,
+    pub velocity: (f64, f64),
+    pub density :  f64,
+    pub pressure:  f64,
+}
+
+impl TracerData
+{
+    fn _quantity(&self) 
+    {
+        todo!("any other quantities to be calculated from primitives");
+    }
+}
+
+fn get_tracer_data<H: Hydrodynamics<Conserved=C>, C: Conserved>(
+    tracer: Tracer, 
+    cons: &ArcArray<C, Ix2>,
+    hydro: H,
+    solver: &Solver,
+    mesh: &Mesh,
+    index: BlockIndex,
+    time: f64) -> TracerData
+{
+    let (x, y) = (tracer.x, tracer.y);
+    let (i, j) = mesh.get_cell_index(index, x, y);
+    let prim = hydro.to_primitive(cons[[i as usize, j as usize]]);
+    let two_body_state = solver.orbital_elements.orbital_state_from_time(time);
+
+    TracerData {
+        tracer  :  tracer,
+        velocity: (prim.velocity_x(), prim.velocity_y()),
+        density :  prim.mass_density(),
+        pressure:  prim.gas_pressure(Some(solver.sound_speed_squared(&(x, y), &two_body_state))),
+    }
+}
+
+fn tracer_subset_data<H: Hydrodynamics<Conserved=C>, C: Conserved>(
+    solution: &Vec<BlockSolution<C>>,
+    block_data: &Vec<BlockData<C>>,
+    hydro: H,
+    solver: &Solver,
+    mesh: &Mesh,
+    time: f64, 
+    tor: usize) -> Vec<TracerData>
+{
+    solution.iter().zip(block_data).map(|(s, block)|
+    {
+        let tracer_data: Vec<TracerData> = s.tracers.iter()
+            .filter(|t| t.id % tor == 0)
+            .map(|&t| get_tracer_data(t, &s.conserved, hydro, solver, mesh, block.index, time))
+            .collect();
+        return tracer_data;
+    })
+    .flatten()
+    .collect()
+}
+
+pub fn write_tracer_output<H: Hydrodynamics<Conserved=C>, C:Conserved>(
+    filename: &str, 
+    state: &State<C>,
+    hydro: H,
+    block_data: &Vec<BlockData<C>>,
+    solver: &Solver,
+    mesh: &Mesh, 
+    model: &kind_config::Form,
+    time: f64) -> hdf5::Result<()>
 {
     let file = File::create(filename)?;
     let tracer_output_ratio: f64 = model.get("tor").into();
 
-    write_tracer_subset(&file, &state.solution, tracer_output_ratio as usize)?;
+    // let subset = tracer_subset(&state.solution, tracer_output_ratio as usize);
+    let subset_data = tracer_subset_data(&state.solution, block_data, hydro, solver, mesh, time, tracer_output_ratio as usize);
+
     state.time.write(&file, "time")?;
     state.iteration.write(&file, "iteration")?;
+    subset_data.write(&file, "tracers")?;
     
     Ok(())
 }
 
-fn write_tracer_subset<C: Conserved>(file: &hdf5::Group, solution: &Vec<BlockSolution<C>>, tor: usize) -> hdf5::Result<()>
-{
-    let subset: Vec<Tracer> = solution
-        .iter()
-        .map(|s| s.tracers.iter().filter(|t| t.id % tor == 0))
-        .flatten()
-        .map(|t| t.clone())
-        .collect();
-    subset.write(&file, "tracers")?;
-    Ok(())
-}
+// fn tracer_subset<C: Conserved>(solution: &Vec<BlockSolution<C>>, tor: usize) -> Vec<Tracer>
+// {
+//     solution.iter()
+//         .map(|s| s.tracers.iter().filter(|t| t.id % tor == 0))
+//         .flatten()
+//         .map(|t| t.clone())
+//         .collect()
+// }
 
 
 
