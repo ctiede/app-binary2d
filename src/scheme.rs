@@ -320,10 +320,10 @@ pub fn advance_tokio<H: 'static + Hydrodynamics>(
     let update = |state| advance_tokio_rk(state, hydro, block_data, mesh, solver, dt, runtime);
 
     for _ in 0..fold {
+        state = runtime.block_on(solver.runge_kutta().advance_async(state, update, runtime));
         if solver.using_tracers() {
             state = rebin_tracers_sync(state, &mesh, block_data);
         }
-        state = runtime.block_on(solver.runge_kutta().advance_async(state, update, runtime));
     }
     return state;
 }

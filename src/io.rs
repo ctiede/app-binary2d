@@ -226,7 +226,6 @@ pub fn write_tracer_output<H: Hydrodynamics<Conserved=C>, C:Conserved>(
     let file = File::create(filename)?;
     let tracer_output_ratio: f64 = model.get("tor").into();
 
-    // let subset = tracer_subset(&state.solution, tracer_output_ratio as usize);
     let subset_data = tracer_subset_data(&state.solution, block_data, hydro, solver, mesh, time, tracer_output_ratio as usize);
 
     state.time.write(&file, "time")?;
@@ -235,15 +234,6 @@ pub fn write_tracer_output<H: Hydrodynamics<Conserved=C>, C:Conserved>(
     
     Ok(())
 }
-
-// fn tracer_subset<C: Conserved>(solution: &Vec<BlockSolution<C>>, tor: usize) -> Vec<Tracer>
-// {
-//     solution.iter()
-//         .map(|s| s.tracers.iter().filter(|t| t.id % tor == 0))
-//         .flatten()
-//         .map(|t| t.clone())
-//         .collect()
-// }
 
 
 
