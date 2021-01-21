@@ -205,8 +205,19 @@ fn tracer_subset_data<H: Hydrodynamics<Conserved=C>, C: Conserved>(
 {
     solution.iter().zip(block_data).map(|(s, block)|
     {
-        let tracer_data: Vec<TracerData> = s.tracers.iter()
-            .filter(|t| t.id % tor == 0)
+        let subset: Vec<Tracer> = if solver.write_tracers_from_id_file() {
+            s.tracers.iter()
+                .filter(|t| solver.tracer_io_ids.clone().unwrap().contains(&t.id))
+                .map(|t| t.clone())
+                .collect()
+        }
+        else {
+            s.tracers.iter()
+                .filter(|t| t.id % tor == 0)
+                .map(|t| t.clone())
+                .collect()
+        };
+        let tracer_data: Vec<TracerData> = subset.iter()
             .map(|&t| get_tracer_data(t, &s.conserved, hydro, solver, mesh, block.index, time))
             .collect();
         return tracer_data;

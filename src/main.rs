@@ -59,7 +59,6 @@ use tracers::*;
 
 
 
-
 // ============================================================================
 fn main() -> anyhow::Result<()>
 {
@@ -137,6 +136,9 @@ struct App
     #[clap(short, long, about="Output directory [default: data/ or restart directory]")]
     outdir: Option<String>,
 
+    #[clap(short, long, about="File with id's of tracers to output [must be a text file of ints]")]
+    tracer_file: Option<String>,
+
     #[clap(long, default_value="1", about="Number of iterations between side effects")]
     fold: usize,
 
@@ -203,6 +205,24 @@ impl App
             num_cpus::get_physical().min(self.threads)
         } else {
             num_cpus::get_physical().min(num_blocks)
+        }
+    }
+
+    fn tracer_io_id_vec(&self) -> Option<Vec<usize>>
+    {
+        use std::fs::File;
+        use std::io::{BufReader, BufRead};
+
+        if let Some(tracer_file) = self.tracer_file.clone() {
+            let buff = BufReader::new(File::open(tracer_file).ok()?);
+            let mut ids = Vec::new();
+            for line in buff.lines() {
+                ids.push(line.ok()?.trim().parse().unwrap());
+            }
+            Some(ids)
+        } 
+        else {
+            None
         }
     }
 }
@@ -623,6 +643,7 @@ impl Solver {
             softening_length: model.get("softening_length").into(),
             force_flux_comm:  app.flux_comm,
             orbital_elements: kepler_two_body::OrbitalElements(a, m, q, e),
+            tracer_io_ids:    app.tracer_io_id_vec(),
         }
     }
 }

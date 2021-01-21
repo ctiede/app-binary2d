@@ -78,6 +78,7 @@ pub struct Solver
     pub softening_length: f64,
     pub force_flux_comm: bool,
     pub orbital_elements: OrbitalElements,
+    pub tracer_io_ids: Option<Vec<usize>>,
 }
 
 
@@ -273,6 +274,11 @@ impl Solver
     pub fn using_tracers(&self) -> bool
     {
         self.num_tracers > 0
+    }
+
+    pub fn write_tracers_from_id_file(&self) -> bool
+    {
+        self.tracer_io_ids.is_some()
     }
 
     pub fn effective_resolution(&self, mesh: &Mesh) -> f64
