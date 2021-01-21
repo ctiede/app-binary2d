@@ -50,7 +50,12 @@ use scheme::{
     BlockData,
 };
 
+use disks::{
+    DiskModel
+};
+
 use tracers::*;
+
 
 
 
@@ -80,8 +85,9 @@ fn main() -> anyhow::Result<()>
         .item("buffer_scale"    , 1.0    , "Length scale of the buffer transition region [a]")
         .item("cfl"             , 0.4    , "CFL parameter [~0.4-0.7]")
         .item("cpi"             , 1.0    , "Checkpoint interval [Orbits]")
+        .item("disk_type"       , "torus", "Disk model [torus|pringle81]")
         .item("disk_mass"       , 1e-3   , "Total disk mass")
-        .item("disk_radius"     , 3.0    , "Disk truncation radius (model-dependent)")
+        .item("disk_radius"     , 3.0    , "Disk truncation radius (meaning depends on disk_type)")
         .item("disk_width"      , 1.5    , "Disk width (model-dependent)")
         .item("domain_radius"   , 6.0    , "Half-size of the domain [a]")
         .item("eccentricity"    , 0.0    , "Orbital eccentricity")
@@ -362,7 +368,7 @@ impl Tasks
 
         println!("write checkpoint {}", fname_chkpt);
         io::write_checkpoint(&fname_chkpt, &state, &block_data, &model.value_map(), &self)?;
-        io::write_time_series(&fname_time_series, time_series)?;
+        io::write_time_series(&fname_time_series, time_series, &model.value_map())?;
 
         Ok(())
     }
@@ -429,33 +435,37 @@ impl Tasks
 
 
 // ============================================================================
-trait InitialModel: Hydrodynamics
-{
-    fn validate(&self, model: &Form) -> anyhow::Result<()>;
-    fn primitive_at(&self, model: &Form, xy: (f64, f64)) -> Self::Primitive;
-}
+fn make_disk_model<H: Hydrodynamics>(model: &Form, hydro: &H) -> anyhow::Result<Box<dyn DiskModel>> {
+    let disk_type: String = model.get("disk_type").into();
 
-impl disks::Torus {
-    fn new<H: Hydrodynamics>(model: &Form, hydro: &H) -> Self {
-        Self{
+    let disk: Box<dyn DiskModel> = match disk_type.as_str() {
+        "torus" => Box::new(disks::Torus{
             mach_number:      model.get("mach_number").into(),
             softening_length: model.get("softening_length").into(),
             mass:             model.get("disk_mass").into(),
             radius:           model.get("disk_radius").into(),
             width:            model.get("disk_width").into(),
+            domain_radius:    model.get("domain_radius").into(),
             gamma:            hydro.gamma_law_index(),
-        }
+        }),
+        "pringle81" => Box::new(disks::Pringle81{
+            // load model parameters here
+        }),
+        _ => Err(anyhow::anyhow!("unknown disk_type={}", disk_type))?,
+    };
+    if let Some(message) = disk.validation_message() {
+        anyhow::bail!(message)
     }
-    fn validate(&self, domain_radius: f64) -> anyhow::Result<()> {
-        if self.failure_radius() < domain_radius * f64::sqrt(2.0) {
-            anyhow::bail!{concat!{
-                "equilibrium disk model fails inside the domain, ",
-                "use a larger mach_number, larger disk_width, or a smaller domain_radius."}
-            }
-        } else {
-            Ok(())
-        }
-    }
+    Ok(disk)
+}
+
+
+
+
+// ============================================================================
+trait InitialModel: Hydrodynamics
+{
+    fn primitive_at(&self, disk: &Box<dyn DiskModel>, xy: (f64, f64)) -> Self::Primitive;
 }
 
 
@@ -464,12 +474,8 @@ impl disks::Torus {
 // ============================================================================
 impl InitialModel for Isothermal
 {
-    fn validate(&self, model: &Form) -> anyhow::Result<()> {
-        disks::Torus::new(model, self).validate(model.get("domain_radius").into())
-    }
-    fn primitive_at(&self, model: &Form, xy: (f64, f64)) -> Self::Primitive
+    fn primitive_at(&self, disk: &Box<dyn DiskModel>, xy: (f64, f64)) -> Self::Primitive
     {
-        let disk = disks::Torus::new(model, self);
         let (x, y) = xy;
         let r = (x * x + y * y).sqrt();
         let sd = disk.surface_density(r);
@@ -483,12 +489,8 @@ impl InitialModel for Isothermal
 
 impl InitialModel for Euler
 {
-    fn validate(&self, model: &Form) -> anyhow::Result<()> {
-        disks::Torus::new(model, self).validate(model.get("domain_radius").into())
-    }
-    fn primitive_at(&self, model: &Form, xy: (f64, f64)) -> Self::Primitive
+    fn primitive_at(&self, disk: &Box<dyn DiskModel>, xy: (f64, f64)) -> Self::Primitive
     {
-        let disk = disks::Torus::new(model, self);
         let (x, y) = xy;
         let r = (x * x + y * y).sqrt();
         let sd = disk.surface_density(r);
@@ -541,10 +543,10 @@ impl<System: Hydrodynamics + InitialModel> Driver<System> where System::Conserve
     }
     fn initial_solution(&self, block_index: BlockIndex, mesh: &Mesh, model: &Form) -> anyhow::Result<BlockSolution<System::Conserved>>
     {
-        self.system.validate(model)?;
+        let disk = make_disk_model(model, &self.system)?;
 
         let u0 = mesh.cell_centers(block_index)
-            .mapv(|x| self.system.primitive_at(model, x))
+            .mapv(|x| self.system.primitive_at(&disk, x))
             .mapv(|p| self.system.to_conserved(p))
             .to_shared();
 
@@ -658,9 +660,9 @@ fn run<S, C>(driver: Driver<S>, app: App, model: Form) -> anyhow::Result<()>
     let dt         = solver.min_time_step(&mesh);
     let block_data = driver.block_data(&mesh, &model)?;
     let tfinal = f64::from(model.get("tfinal")) * ORBITAL_PERIOD;
-    let mut time_series;
-    let mut state;
-    let mut tasks;
+    let mut state: State<C>;
+    let mut time_series: Vec<TimeSeriesSample<C>>;
+    let mut tasks: Tasks;
 
 
     // Load or create the initial state and tasks
@@ -677,7 +679,23 @@ fn run<S, C>(driver: Driver<S>, app: App, model: Form) -> anyhow::Result<()>
     // Load or create the initial time series data
     // ========================================================================
     if let Some(time_series_file) = app.output_rundir_child("time_series.h5")? {
-        time_series = io::read_time_series(time_series_file)?;
+        time_series = io::read_time_series(&time_series_file)?;
+
+        if let Some(last_sample) = time_series.last() {
+            if state.time < last_sample.time {
+                if ! app.truncate {
+                    bail!{concat!{
+                        "time series file '{}' extends past the current time ({:.6} > {:.6}), ",
+                        "run with --truncate to lose the future data ",
+                        "or select a different --outdir."},
+                        time_series_file.as_str(),
+                        last_sample.time / ORBITAL_PERIOD,
+                        state.time / ORBITAL_PERIOD,
+                    }
+                }
+                time_series.retain(|s| s.time < state.time);
+            }
+        }
     } else {
         time_series = driver.initial_time_series();
     }
@@ -690,19 +708,6 @@ fn run<S, C>(driver: Driver<S>, app: App, model: Form) -> anyhow::Result<()>
             "that simulation appears to be finished already, ",
             "set tfinal to something > {:.6}."},
             state.time / ORBITAL_PERIOD
-        }
-    }
-    if let Some(last_sample) = time_series.last() {
-        if state.time < last_sample.time {
-            if ! app.truncate {
-                bail!{concat!{
-                    "output directory '{}' would lose time series data, ",
-                    "run with --truncate to proceed anyway."},
-                    app.output_directory()?.as_str(),
-                }
-            } else {
-                time_series.retain(|s| s.time < state.time);
-            }
         }
     }
 
