@@ -86,7 +86,7 @@ fn main() -> anyhow::Result<()>
         .item("buffer_scale"    , 1.0    , "Length scale of the buffer transition region [a]")
         .item("cfl"             , 0.4    , "CFL parameter [~0.4-0.7]")
         .item("cpi"             , 1.0    , "Checkpoint interval [Orbits]")
-        .item("disk_type"       , "torus", "Disk model [torus|pringle81|inf-disk|alpha-disk]")
+        .item("disk_type"       , "torus", "Disk model [torus|pringle81|flat-disk|alpha-disk]")
         .item("disk_mass"       , 1e-3   , "Total disk mass")
         .item("disk_radius"     , 3.0    , "Disk truncation radius (meaning depends on disk_type)")
         .item("disk_width"      , 1.5    , "Disk width (model-dependent)")
