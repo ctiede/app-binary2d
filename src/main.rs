@@ -79,12 +79,14 @@ fn main() -> anyhow::Result<()>
     ];
 
     let model = Form::new()
+        .item("alpha"           , 0.0    , "If alpha > 0, use alpha viscosity with supplied alpha")
+        .item("ell0"            , 0.7    , "The presumed/guessed value of the accretion eigenvalue for alpha-disk setup")
         .item("block_size"      , 256    , "Number of grid cells (per direction, per block)")
         .item("buffer_rate"     , 1e3    , "Rate of damping in the buffer region [orbital frequency @ domain radius]")
         .item("buffer_scale"    , 1.0    , "Length scale of the buffer transition region [a]")
         .item("cfl"             , 0.4    , "CFL parameter [~0.4-0.7]")
         .item("cpi"             , 1.0    , "Checkpoint interval [Orbits]")
-        .item("disk_type"       , "torus", "Disk model [torus|pringle81]")
+        .item("disk_type"       , "torus", "Disk model [torus|pringle81|inf-disk|alpha-disk]")
         .item("disk_mass"       , 1e-3   , "Total disk mass")
         .item("disk_radius"     , 3.0    , "Disk truncation radius (meaning depends on disk_type)")
         .item("disk_width"      , 1.5    , "Disk width (model-dependent)")
@@ -468,6 +470,21 @@ fn make_disk_model<H: Hydrodynamics>(model: &Form, hydro: &H) -> anyhow::Result<
             domain_radius:    model.get("domain_radius").into(),
             gamma:            hydro.gamma_law_index(),
         }),
+        "flat-disk" => Box::new(disks::FlatDisk{
+            nu:               model.get("nu").into(),
+            radius:           model.get("disk_radius").into(),
+            mach_number:      model.get("mach_number").into(),
+            softening_length: model.get("softening_length").into(),
+            gamma:            hydro.gamma_law_index(),
+        }),
+        "alpha-disk" => Box::new(disks::AlphaDisk{
+            alpha:            model.get("alpha").into(),
+            radius:           model.get("disk_radius").into(),
+            mach_number:      model.get("mach_number").into(),
+            softening_length: model.get("softening_length").into(),
+            ell0:             model.get("ell0").into(),
+            gamma:            hydro.gamma_law_index(),
+        }),
         "pringle81" => Box::new(disks::Pringle81{
             // load model parameters here
         }),
@@ -500,8 +517,9 @@ impl InitialModel for Isothermal
         let r = (x * x + y * y).sqrt();
         let sd = disk.surface_density(r);
         let vp = disk.phi_velocity_squared(r).sqrt();
-        let vx = vp * (-y / r);
-        let vy = vp * ( x / r);
+        let vr = disk.radial_velocity(r);
+        let vx = vp * (-y / r) + vr * (x / r);
+        let vy = vp * ( x / r) + vr * (y / r);
         assert!(! vp.is_nan());
         hydro_iso2d::Primitive(sd, vx, vy)
     }
@@ -515,9 +533,10 @@ impl InitialModel for Euler
         let r = (x * x + y * y).sqrt();
         let sd = disk.surface_density(r);
         let vp = disk.phi_velocity_squared(r).sqrt();
+        let vr = disk.radial_velocity(r);
         let pg = disk.vertically_integrated_pressure(r);
-        let vx = vp * (-y / r);
-        let vy = vp * ( x / r);
+        let vx = vp * (-y / r) + vr * (x / r);
+        let vy = vp * ( x / r) + vr * (y / r);
         assert!(! vp.is_nan());
         return hydro_euler::euler_2d::Primitive(sd, vx, vy, pg);
     }
@@ -628,6 +647,7 @@ impl Solver {
         let e:f64 = model.get("eccentricity").into();
 
         Self{
+            alpha:            model.get("alpha").into(),
             buffer_rate:      model.get("buffer_rate").into(),
             buffer_scale:     model.get("buffer_scale").into(),
             cfl:              model.get("cfl").into(),

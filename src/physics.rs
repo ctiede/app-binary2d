@@ -63,6 +63,7 @@ pub struct ItemizedChange<C: ItemizeData>
 #[derive(Clone)]
 pub struct Solver
 {
+    pub alpha: f64,
     pub buffer_rate: f64,
     pub buffer_scale: f64,
     pub cfl: f64,
@@ -276,6 +277,11 @@ impl Solver
         self.num_tracers > 0
     }
 
+    pub fn using_alpha(&self) -> bool
+    {
+        self.alpha > 0.0
+    }
+
     pub fn write_tracers_from_id_file(&self) -> bool
     {
         self.tracer_io_ids.is_some()
@@ -300,6 +306,17 @@ impl Solver
             self.sink_rate * f64::exp(-(r2 / s2).powi(3))
         } else {
             0.0
+        }
+    }
+
+    pub fn compute_nu(&self, xy: &(f64, f64), state: &OrbitalState) -> f64
+    {
+        if self.using_alpha() {
+            // nu = alpha * cs2 * Omega_k^-1
+            self.alpha * self.sound_speed_squared(xy, state) * (xy.0 * xy.0 + xy.1 * xy.1).powf(3. / 4.)
+        }
+        else {
+            self.nu
         }
     }
 
@@ -427,7 +444,7 @@ impl Hydrodynamics for Isothermal
         let cs2 = solver.sound_speed_squared(f, &two_body_state);
         let pl  = *l.pc + *l.gradient_field(axis) * 0.5;
         let pr  = *r.pc - *r.gradient_field(axis) * 0.5;
-        let nu  = solver.nu;
+        let nu  = solver.compute_nu(f, &two_body_state);
         let lam = solver.lambda;
         let tau_x = 0.5 * (l.stress_field(nu, lam, dx, dy, axis, Direction::X) + r.stress_field(nu, lam, dx, dy, axis, Direction::X));
         let tau_y = 0.5 * (l.stress_field(nu, lam, dx, dy, axis, Direction::Y) + r.stress_field(nu, lam, dx, dy, axis, Direction::Y));
@@ -452,7 +469,7 @@ impl Hydrodynamics for Isothermal
         let cs2 = solver.sound_speed_squared(f, &two_body_state);
         let pl  = *l.pc + *l.gradient_field(axis) * 0.5;
         let pr  = *r.pc - *r.gradient_field(axis) * 0.5;
-        let nu  = solver.nu;
+        let nu  = solver.compute_nu(f, &two_body_state);
         let lam = solver.lambda;
         let tau_x = 0.5 * (l.stress_field(nu, lam, dx, dy, axis, Direction::X) + r.stress_field(nu, lam, dx, dy, axis, Direction::X));
         let tau_y = 0.5 * (l.stress_field(nu, lam, dx, dy, axis, Direction::Y) + r.stress_field(nu, lam, dx, dy, axis, Direction::Y));
