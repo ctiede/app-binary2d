@@ -45,6 +45,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("filenames", nargs='+')
     parser.add_argument('--range', default='None,None', help='vmin and vmax parameters for the relief plot')
+    parser.add_argument('--save', '-s', action='store_true')
     args = parser.parse_args()
 
     vmin, vmax = eval(args.range)
@@ -55,4 +56,10 @@ if __name__ == "__main__":
         rho = conserved(filename, 0)
         ax1.imshow(np.log10(rho).T, cmap='inferno', origin='lower', extent=extent(filename), vmin=vmin, vmax=vmax)
         # plt.colorbar()
-    plt.show()
+        if args.save is True:
+            num = int(filename.split('.')[1])
+            plt.savefig('plot.{:04d}.png'.format(num))
+            plt.close()
+    
+    if args.save is False:
+        plt.show()
