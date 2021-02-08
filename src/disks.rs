@@ -6,9 +6,6 @@ use std::f64::consts::PI;
 
 static G: f64     = 1.0;    // gravitational constant
 static M: f64     = 1.0;    // system mass
-static MDOT0: f64 = 1.0e-3; // boundary accretion rate -> sigma0 ~ MDOT0 / nu
-
-static temp_floor: f64 = 1e-6;
 
 
 // ============================================================================
@@ -118,6 +115,8 @@ pub struct FlatDisk {
     pub mach_number: f64,
     pub softening_length: f64,
     pub gamma: f64,
+    pub mdot0: f64,
+    pub temp_floor: f64,
 }
 
 
@@ -142,7 +141,7 @@ impl DiskModel for FlatDisk {
     }
 
     fn surface_density(&self, r: f64) -> f64 {
-        self.sigma0() * self.fcavity(r) + temp_floor
+        self.sigma0() * self.fcavity(r) + self.temp_floor
     }
 
     fn radial_velocity(&self, r: f64) -> f64 {
@@ -167,7 +166,7 @@ impl FlatDisk {
     }
 
     fn sigma0(&self) -> f64 {
-        MDOT0 / (3. * PI * self.nu)
+        self.mdot0 / (3. * PI * self.nu)
     }
 
 }
@@ -185,7 +184,9 @@ pub struct AlphaDisk {
     pub mach_number: f64,
     pub softening_length: f64,
     pub ell0: f64,
+    pub mdot0: f64,
     pub gamma: f64,
+    pub temp_floor: f64,
 }
 
 
@@ -211,11 +212,11 @@ impl DiskModel for AlphaDisk {
 
     fn surface_density(&self, r: f64) -> f64 {
         let sqrt_rinv = (1. / r).sqrt();
-        self.sigma0() * sqrt_rinv * (1. - self.ell0 * sqrt_rinv) * self.fcavity(r) + temp_floor
+        self.sigma0() * sqrt_rinv * (1. - self.ell0 * sqrt_rinv) * self.fcavity(r) + self.temp_floor
     }
 
     fn radial_velocity(&self, r: f64) -> f64 {
-        - MDOT0 / (2. * PI * r * self.surface_density(r)) * self.fcavity(r)
+        - self.mdot0 / (2. * PI * r * self.surface_density(r)) * self.fcavity(r)
     }
 }
 
@@ -240,7 +241,7 @@ impl AlphaDisk {
     }
 
     fn sigma0(&self) -> f64 {
-        MDOT0 / (3. * PI * self.alpha / self.mach_number.powi(2))
+        self.mdot0 / (3. * PI * self.alpha / self.mach_number.powi(2))
     }
 
 }

@@ -80,7 +80,6 @@ fn main() -> anyhow::Result<()>
 
     let model = Form::new()
         .item("alpha"           , 0.0    , "If alpha > 0, use alpha viscosity with supplied alpha")
-        .item("ell0"            , 0.7    , "The presumed/guessed value of the accretion eigenvalue for alpha-disk setup")
         .item("block_size"      , 256    , "Number of grid cells (per direction, per block)")
         .item("buffer_rate"     , 1e3    , "Rate of damping in the buffer region [orbital frequency @ domain radius]")
         .item("buffer_scale"    , 1.0    , "Length scale of the buffer transition region [a]")
@@ -90,6 +89,8 @@ fn main() -> anyhow::Result<()>
         .item("disk_mass"       , 1e-3   , "Total disk mass")
         .item("disk_radius"     , 3.0    , "Disk truncation radius (meaning depends on disk_type)")
         .item("disk_width"      , 1.5    , "Disk width (model-dependent)")
+        .item("disk_ell0"       , 0.7    , "The presumed/guessed value of the accretion eigenvalue for alpha-disk setup")
+        .item("disk_mdot0"      , 1e-3   , "Equilibrium feeding rate for flat- and alpha-disk types (mdot0 = 3 pi nu sigma0)")
         .item("domain_radius"   , 6.0    , "Half-size of the domain [a]")
         .item("eccentricity"    , 0.0    , "Orbital eccentricity")
         .item("hydro"           , "iso"  , "Hydrodynamics mode: [iso|euler]")
@@ -475,15 +476,19 @@ fn make_disk_model<H: Hydrodynamics>(model: &Form, hydro: &H) -> anyhow::Result<
             radius:           model.get("disk_radius").into(),
             mach_number:      model.get("mach_number").into(),
             softening_length: model.get("softening_length").into(),
+            mdot0:            model.get("disk_mdot0").into(),
             gamma:            hydro.gamma_law_index(),
+            temp_floor:       1e-6,
         }),
         "alpha-disk" => Box::new(disks::AlphaDisk{
             alpha:            model.get("alpha").into(),
             radius:           model.get("disk_radius").into(),
             mach_number:      model.get("mach_number").into(),
             softening_length: model.get("softening_length").into(),
-            ell0:             model.get("ell0").into(),
+            ell0:             model.get("disk_ell0").into(),
+            mdot0:            model.get("disk_mdot0").into(),
             gamma:            hydro.gamma_law_index(),
+            temp_floor:       1e-6,
         }),
         "pringle81" => Box::new(disks::Pringle81{
             // load model parameters here

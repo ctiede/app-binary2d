@@ -312,7 +312,7 @@ impl Solver
     pub fn compute_nu(&self, xy: &(f64, f64), state: &OrbitalState) -> f64
     {
         if self.using_alpha() {
-            // nu = alpha * cs2 * Omega_k^-1
+            // nu = alpha * cs^2 * Omega_k^-1
             self.alpha * self.sound_speed_squared(xy, state) * (xy.0 * xy.0 + xy.1 * xy.1).powf(3. / 4.)
         }
         else {
@@ -562,6 +562,9 @@ impl Hydrodynamics for Euler
         let pl = *l.pc + *l.gradient_field(axis) * 0.5;
         let pr = *r.pc - *r.gradient_field(axis) * 0.5;
 
+        if solver.using_alpha() {
+            panic!("alpha viscosity not yet implemented for Hydrodynamics::Euler");
+        }
         let nu    = solver.nu;
         let lam   = solver.lambda;
         let tau_x = 0.5 * (l.stress_field(nu, lam, dx, dy, axis, Direction::X) + r.stress_field(nu, lam, dx, dy, axis, Direction::X));
