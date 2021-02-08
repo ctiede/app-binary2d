@@ -4,8 +4,8 @@ use std::f64::consts::PI;
 
 
 
-static G: f64     = 1.0; // gravitational constant
-static M: f64     = 1.0; // system mass
+static G: f64     = 1.0;    // gravitational constant
+static M: f64     = 1.0;    // system mass
 static MDOT0: f64 = 1.0e-3; // boundary accretion rate -> sigma0 ~ MDOT0 / nu
 
 static temp_floor: f64 = 1e-6;
