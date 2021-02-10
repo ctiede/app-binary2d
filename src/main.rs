@@ -26,6 +26,7 @@ use num::rational::Rational64;
 use clap::Clap;
 use kind_config::Form;
 use io_logical::verified;
+use ndarray::{ArcArray, Ix2};
 
 use traits::{
     Hydrodynamics,
@@ -566,23 +567,30 @@ impl<System: Hydrodynamics + InitialModel> Driver<System> where System::Conserve
     {
         Self{system: system}
     }
-    fn initial_tracers(&self, block_index: BlockIndex, mesh: &Mesh, ntracers: usize) -> Vec<Tracer>
+    fn initial_tracers(&self, u0: &ArcArray<System::Conserved, Ix2>, block_index: BlockIndex, mesh: &Mesh, ntracers: usize) -> Vec<Tracer>
     {
-        let x0 = mesh.block_start(block_index);
-        let tracers_per_row = f64::sqrt(ntracers as f64).ceil();
-        let tracer_spacing  = mesh.block_length() / tracers_per_row;
-        let total_tracers   = (tracers_per_row * tracers_per_row) as usize;
-        let get_id = |i| self.linear_index(block_index, mesh.num_blocks) * total_tracers + i;
-
-        let make_grid = |n|
-        {
-            let m = tracers_per_row as usize;
-            let x = ((n % m) as f64 + 0.5) * tracer_spacing + x0.0;
-            let y = ((n / m) as f64 + 0.5) * tracer_spacing + x0.1;
+        let x0          =  mesh.block_start(block_index);
+        let n_per_row   =  f64::sqrt(ntracers as f64).ceil();
+        let spacing     =  mesh.block_length() / n_per_row;
+        let block_total = (n_per_row * n_per_row) as usize;
+        let area_per    = (4. * mesh.domain_radius.powi(2)) / ((block_total * mesh.num_blocks.pow(2)) as f64);
+        let get_id      = |i| self.linear_index(block_index, mesh.num_blocks) * block_total + i;
+        
+        let weight = |(x, y)| {
+            let (i, j) = mesh.get_cell_index(block_index, x, y);
+            let u = u0[[i as usize, j as usize]];
+            area_per * u.mass_and_momentum().0
+        };
+        
+        let make_grid = |n| {
+            let m = n_per_row as usize;
+            let x = ((n % m) as f64 + 0.5) * spacing + x0.0;
+            let y = ((n / m) as f64 + 0.5) * spacing + x0.1;
             ((x, y), n)
         };
-        (0..total_tracers).map(make_grid)
-            .map(|(xy, n)| Tracer::new(xy, get_id(n)))
+
+        (0..block_total).map(make_grid)
+            .map(|(xy, n)| Tracer::new(xy, weight(xy), get_id(n)))
             .collect()
     }
     fn initial_solution(&self, block_index: BlockIndex, mesh: &Mesh, model: &Form) -> anyhow::Result<BlockSolution<System::Conserved>>
@@ -595,10 +603,10 @@ impl<System: Hydrodynamics + InitialModel> Driver<System> where System::Conserve
             .to_shared();
 
         Ok(BlockSolution{
-            conserved: u0,
+            conserved: u0.clone(),
             integrated_source_terms: ItemizedChange::zeros(),
             orbital_elements_change: ItemizedChange::zeros(),
-            tracers: Arc::new(self.initial_tracers(block_index, mesh, mesh.tracers_per_block)),
+            tracers: Arc::new(self.initial_tracers(&u0, block_index, mesh, mesh.tracers_per_block)),
         })
     }
     fn initial_state(&self, mesh: &Mesh, model: &Form) -> anyhow::Result<State<System::Conserved>>

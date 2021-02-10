@@ -21,6 +21,7 @@ pub struct Tracer
     pub id: usize,
     pub x:  f64,
     pub y:  f64,
+    pub weight: f64, 
 }
 
 
@@ -36,6 +37,7 @@ impl runge_kutta::WeightedAverage for Tracer
             id: self.id,
             x:  self.x * (-bf + 1.) + s0.x * bf, 
             y:  self.y * (-bf + 1.) + s0.y * bf, 
+            weight: self.weight,
         }
     }
 }
@@ -46,9 +48,9 @@ impl runge_kutta::WeightedAverage for Tracer
 // ============================================================================
 impl Tracer
 {
-    pub fn new(xy: (f64, f64), id: usize) -> Tracer
+    pub fn new(xy: (f64, f64), w: f64, id: usize) -> Tracer
     {
-        return Tracer{x: xy.0, y: xy.1, id: id}
+        return Tracer{x: xy.0, y: xy.1, id: id, weight: w}
     }
 
     pub fn update(&self, v: (f64, f64), dt: f64) ->Tracer
@@ -57,6 +59,7 @@ impl Tracer
             id: self.id,
             x:  self.x + v.0 * dt,
             y:  self.y + v.1 * dt,
+            weight: self.weight,
         }
     }
 }

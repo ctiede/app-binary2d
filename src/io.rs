@@ -73,6 +73,7 @@ fn write_state<C: Conserved>(group: &Group, state: &State<C>, block_data: &Vec<B
     }
     state.time.write(&state_group, "time")?;
     state.iteration.write(&state_group, "iteration")?;
+
     Ok(())
 }
 
