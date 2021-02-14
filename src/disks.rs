@@ -129,10 +129,11 @@ impl DiskModel for FlatDisk {
     }
 
     fn phi_velocity_squared(&self, r: f64) -> f64 {
-        let r_inv  = 1. / r;
-        let q_term = 1. + 3. / 16. * r_inv * r_inv;
-        let p_term = self.sound_speed_squared(r);
-        (G * M * r_inv * q_term - p_term) * self.fcavity(r).powi(2)
+        // let r_inv  = 1. / r;
+        // let q_term = 1. + 3. / 16. * r_inv * r_inv;
+        // let p_term = self.sound_speed_squared(r);
+        // (G * M * r_inv * q_term - p_term) * self.fcavity(r).powi(2)
+        self.kepler_speed_squared(r) * self.fcavity(r)
     }
 
     fn vertically_integrated_pressure(&self, r: f64) -> f64 {
@@ -175,7 +176,7 @@ impl FlatDisk {
 
 // ============================================================================
 // 
-// Following setup up from Munoz, Miranda, Lai 2019
+// Following setup up from Munoz, Miranda, Lai 2019 (only for equal-mass, circular case)
 // 
 pub struct AlphaDisk {
     pub alpha: f64,
