@@ -116,7 +116,6 @@ pub struct FlatDisk {
     pub softening_length: f64,
     pub gamma: f64,
     pub mdot0: f64,
-    pub temp_floor: f64,
 }
 
 
@@ -141,7 +140,7 @@ impl DiskModel for FlatDisk {
     }
 
     fn surface_density(&self, r: f64) -> f64 {
-        self.sigma0() * self.fcavity(r) + self.temp_floor
+        self.sigma0() * self.fcavity(r)
     }
 
     fn radial_velocity(&self, r: f64) -> f64 {
@@ -186,7 +185,6 @@ pub struct AlphaDisk {
     pub ell0: f64,
     pub mdot0: f64,
     pub gamma: f64,
-    pub temp_floor: f64,
 }
 
 
@@ -200,10 +198,7 @@ impl DiskModel for AlphaDisk {
     }
 
     fn phi_velocity_squared(&self, r: f64) -> f64 {
-        let r_inv  = 1. / r;
-        let q_term = 1. + 3. / 16. * r_inv * r_inv;
-        let p_term = self.sound_speed_squared(r) * (1. - r / self.surface_density(r) * self.dsigma_dr(r));
-        (G * M * r_inv * q_term - p_term) * self.fcavity(r).powi(2)
+        self.vphi_squared(r) * self.fcavity(r).powi(2)
     }
 
     fn vertically_integrated_pressure(&self, r: f64) -> f64 {
@@ -211,12 +206,11 @@ impl DiskModel for AlphaDisk {
     }
 
     fn surface_density(&self, r: f64) -> f64 {
-        let sqrt_rinv = (1. / r).sqrt();
-        self.sigma0() * sqrt_rinv * (1. - self.ell0 * sqrt_rinv) * self.fcavity(r) + self.temp_floor
+        self.sigma(r) * self.fcavity(r)
     }
 
     fn radial_velocity(&self, r: f64) -> f64 {
-        - self.mdot0 / (2. * PI * r * self.surface_density(r)) * self.fcavity(r)
+        - self.mdot0 / (2. * PI * r * self.sigma(r)) * self.fcavity(r)
     }
 }
 
@@ -231,8 +225,20 @@ impl AlphaDisk {
         self.kepler_speed_squared(r) / self.mach_number.powi(2)
     }
 
+    fn sigma(&self, r: f64) -> f64 {
+        let rinv_sqrt = (1. / r).sqrt();
+        self.sigma0() * rinv_sqrt * (1. - self.ell0 * rinv_sqrt)
+    }
+
     fn dsigma_dr(&self, r: f64) -> f64 {
         self.sigma0() * (-0.5 / r.powf(1.5) + self.ell0 / r.powi(2))
+    }
+
+    fn vphi_squared(&self, r: f64) -> f64 {
+        let r_inv  = 1. / r;
+        let q_term = 1. + 3. / 16. * r_inv * r_inv;
+        let p_term = self.sound_speed_squared(r) * (1. - r / self.sigma(r) * self.dsigma_dr(r));
+        G * M * r_inv * q_term - p_term
     }
 
     fn fcavity(&self, r: f64) -> f64 {

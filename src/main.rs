@@ -479,7 +479,6 @@ fn make_disk_model<H: Hydrodynamics>(model: &Form, hydro: &H) -> anyhow::Result<
             softening_length: model.get("softening_length").into(),
             mdot0:            model.get("disk_mdot0").into(),
             gamma:            hydro.gamma_law_index(),
-            temp_floor:       1e-6,
         }),
         "alpha-disk" => Box::new(disks::AlphaDisk{
             alpha:            model.get("alpha").into(),
@@ -489,7 +488,6 @@ fn make_disk_model<H: Hydrodynamics>(model: &Form, hydro: &H) -> anyhow::Result<
             ell0:             model.get("disk_ell0").into(),
             mdot0:            model.get("disk_mdot0").into(),
             gamma:            hydro.gamma_law_index(),
-            temp_floor:       1e-6,
         }),
         "pringle81" => Box::new(disks::Pringle81{
             // load model parameters here
