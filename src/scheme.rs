@@ -7,19 +7,17 @@ use ndarray::{Axis, Array, ArcArray, Ix2};
 use ndarray_ops::MapArray3by3;
 use godunov_core::runge_kutta;
 use kepler_two_body::OrbitalElements;
-
 use crate::physics::{
     Direction,
     CellData,
+    HydroError,
     ItemizedChange,
     Solver,
 };
-
 use crate::mesh::{
     Mesh,
     BlockIndex,
 };
-
 use crate::traits::{
     Hydrodynamics,
     Conserved,
@@ -38,8 +36,7 @@ use crate::tracers::{
 
 // ============================================================================
 #[derive(Clone)]
-pub struct BlockData<C: Conserved>
-{
+pub struct BlockData<C: Conserved> {
     pub initial_conserved: ArcArray<C, Ix2>,
     pub cell_centers:      ArcArray<(f64, f64), Ix2>,
     pub face_centers_x:    ArcArray<(f64, f64), Ix2>,
@@ -52,8 +49,7 @@ pub struct BlockData<C: Conserved>
 
 // ============================================================================
 #[derive(Clone)]
-pub struct BlockSolution<C: Conserved>
-{
+pub struct BlockSolution<C: Conserved> {
     pub conserved: ArcArray<C, Ix2>,
     pub integrated_source_terms: ItemizedChange<C>,
     pub orbital_elements_change: ItemizedChange<OrbitalElements>,
@@ -78,8 +74,7 @@ impl<C: Conserved> BlockSolution<C>
 
 // ============================================================================
 #[derive(Clone)]
-struct BlockState<C: Conserved>
-{
+struct BlockState<C: Conserved> {
     pub time: f64,
     pub iteration: Rational64,
     pub solution: BlockSolution<C>,
@@ -90,8 +85,7 @@ struct BlockState<C: Conserved>
 
 // ============================================================================
 #[derive(Clone)]
-pub struct State<C: Conserved>
-{
+pub struct State<C: Conserved> {
     pub time: f64,
     pub iteration: Rational64,
     pub solution: Vec<BlockSolution<C>>,
@@ -102,8 +96,7 @@ pub struct State<C: Conserved>
 
 // ============================================================================
 #[derive(Copy, Clone)]
-struct UpdateScheme<H: Hydrodynamics>
-{
+struct UpdateScheme<H: Hydrodynamics> {
     hydro: H,
 }
 
@@ -111,18 +104,17 @@ struct UpdateScheme<H: Hydrodynamics>
 
 
 // ============================================================================
-impl<C: ItemizeData> runge_kutta::WeightedAverage for ItemizedChange<C>
-{
-    fn weighted_average(self, br: Rational64, s0: &Self) -> Self
-    {
+impl<C: ItemizeData> runge_kutta::WeightedAverage for ItemizedChange<C> {
+    fn weighted_average(self, br: Rational64, s0: &Self) -> Self {
         let bf = br.to_f64().unwrap();
-        Self{
+        Self {
             sink1:   self.sink1   * (-bf + 1.) + s0.sink1   * bf,
             sink2:   self.sink2   * (-bf + 1.) + s0.sink2   * bf,
             grav1:   self.grav1   * (-bf + 1.) + s0.grav1   * bf,
             grav2:   self.grav2   * (-bf + 1.) + s0.grav2   * bf,
             buffer:  self.buffer  * (-bf + 1.) + s0.buffer  * bf,
             cooling: self.cooling * (-bf + 1.) + s0.cooling * bf,
+            fake_mass: self.fake_mass * (-bf + 1.) + s0.fake_mass * bf,
         }
     }
 }
@@ -131,12 +123,10 @@ impl<C: ItemizeData> runge_kutta::WeightedAverage for ItemizedChange<C>
 
 
 // ============================================================================
-impl<C: Conserved> runge_kutta::WeightedAverage for BlockState<C>
-{
-    fn weighted_average(self, br: Rational64, s0: &Self) -> Self
-    {
+impl<C: Conserved> runge_kutta::WeightedAverage for BlockState<C> {
+    fn weighted_average(self, br: Rational64, s0: &Self) -> Self {
         let bf = br.to_f64().unwrap();
-        Self{
+        Self {
             time:      self.time      * (-bf + 1.) + s0.time      * bf,
             iteration: self.iteration * (-br + 1 ) + s0.iteration * br,
             solution:  self.solution.weighted_average(br, &s0.solution),
@@ -144,10 +134,8 @@ impl<C: Conserved> runge_kutta::WeightedAverage for BlockState<C>
     }
 }
 
-impl<C: Conserved> runge_kutta::WeightedAverage for BlockSolution<C>
-{
-    fn weighted_average(self, br: Rational64, s0: &Self) -> Self
-    {
+impl<C: Conserved> runge_kutta::WeightedAverage for BlockSolution<C> {
+    fn weighted_average(self, br: Rational64, s0: &Self) -> Self {
         let s1 = self;
         let bf = br.to_f64().unwrap();
         let u0 = s0.conserved.clone();
@@ -173,11 +161,10 @@ impl<C: Conserved> runge_kutta::WeightedAverage for BlockSolution<C>
 
 // ============================================================================
 #[async_trait::async_trait]
-impl<C: Conserved> runge_kutta::WeightedAverageAsync for State<C>
-{
+impl<C: Conserved> runge_kutta::WeightedAverageAsync for State<C> {
     type Runtime = tokio::runtime::Runtime;
-    async fn weighted_average(self, br: Rational64, s0: &Self, runtime: &Self::Runtime) -> Self
-    {
+
+    async fn weighted_average(self, br: Rational64, s0: &Self, runtime: &Self::Runtime) -> Self {
         use futures::future::join_all;
         use godunov_core::runge_kutta::WeightedAverage;
 
@@ -189,7 +176,7 @@ impl<C: Conserved> runge_kutta::WeightedAverageAsync for State<C>
             .map(|(s1, s0)| runtime.spawn(async move { s1.weighted_average(br, &s0) }))
             .map(|f| async { f.await.unwrap() });
 
-        State{
+        State {
             time:      self.time      * (-bf + 1.) + s0.time      * bf,
             iteration: self.iteration * (-br + 1 ) + s0.iteration * br,
             solution: join_all(s_avg).await,
@@ -201,47 +188,50 @@ impl<C: Conserved> runge_kutta::WeightedAverageAsync for State<C>
 
 
 // ============================================================================
-async fn join_3by3<T: Clone + Future>(a: [[&T; 3]; 3]) -> [[T::Output; 3]; 3]
+async fn try_join_3by3<F, T, E>(a: [[&F; 3]; 3]) -> Result<[[T; 3]; 3], E>
+where
+    F: Clone + Future<Output = Result<T, E>>
 {
-    [
-        [a[0][0].clone().await, a[0][1].clone().await, a[0][2].clone().await],
-        [a[1][0].clone().await, a[1][1].clone().await, a[1][2].clone().await],
-        [a[2][0].clone().await, a[2][1].clone().await, a[2][2].clone().await],
-    ]
+    Ok([
+        [a[0][0].clone().await?, a[0][1].clone().await?, a[0][2].clone().await?],
+        [a[1][0].clone().await?, a[1][1].clone().await?, a[1][2].clone().await?],
+        [a[2][0].clone().await?, a[2][1].clone().await?, a[2][2].clone().await?],
+    ])
 }
 
 
 
 
 // ============================================================================
-async fn advance_tokio_rk<H: 'static + Hydrodynamics>(
+async fn try_advance_tokio_rk<H: 'static + Hydrodynamics>(
     state: State<H::Conserved>,
     hydro: H,
     block_data: &Vec<BlockData<H::Conserved>>,
     mesh: &Mesh,
     solver: &Solver,
     dt: f64,
-    runtime: &tokio::runtime::Runtime) -> State<H::Conserved>
+    runtime: &tokio::runtime::Runtime) -> Result<State<H::Conserved>, HydroError>
 {
     use futures::future::{FutureExt, join_all};
 
     let scheme = UpdateScheme::new(hydro);
     let time = state.time;
+    let mut pc_map = HashMap::new();
+    let mut fv_map = HashMap::new();
+    let mut s1_vec = Vec::new();
 
-    let pc_map: HashMap<_, _> = state.solution.iter().zip(block_data).map(|(solution, block)|
-    {
+    for (solution, block) in state.solution.iter().zip(block_data) {
         let uc = solution.conserved.clone();
+        let block = block.clone();
+        let block_index = block.index;
         let primitive = async move {
-            scheme.compute_block_primitive(uc).to_shared()
+            scheme.try_block_primitive(uc, block).map(|p| p.to_shared())
         };
-        return (block.index, runtime.spawn(primitive).map(|f| f.unwrap()).shared());
-
-    }).collect();
-
+        pc_map.insert(block_index, runtime.spawn(primitive).map(|f| f.unwrap()).shared());
+    }
     let pc_map = Arc::new(pc_map);
 
-    let fv_map: HashMap<_, _> = block_data.iter().map(|block|
-    {
+    for block in block_data {
         let solver      = solver.clone();
         let mesh        = mesh.clone();
         let pc_map      = pc_map.clone();
@@ -249,27 +239,24 @@ async fn advance_tokio_rk<H: 'static + Hydrodynamics>(
         let block_index = block.index;
 
         let fv = async move {
-            let pn = join_3by3(mesh.neighbor_block_indexes(block_index).map_3by3(|i| &pc_map[i])).await;
+            let pn = try_join_3by3(mesh.neighbor_block_indexes(block_index).map_3by3(|i| &pc_map[i])).await?;
             let pe = ndarray_ops::extend_from_neighbor_arrays_2d(&pn, 2, 2, 2, 2);
 
             if solver.using_tracers() {
                 let (fx, fy, vx, vy) = scheme.compute_block_fluxes(&pe, &block, &solver, &mesh, time);
                 let vstar_x = vx.unwrap().to_shared();
                 let vstar_y = vy.unwrap().to_shared();
-                (fx.to_shared(), fy.to_shared(), Some(vstar_x), Some(vstar_y))
+                Ok::<_, HydroError>((fx.to_shared(), fy.to_shared(), Some(vstar_x), Some(vstar_y)))
             } else {
                 let (fx, fy, _, _) = scheme.compute_block_fluxes(&pe, &block, &solver, &mesh, time);
-                (fx.to_shared(), fy.to_shared(), None, None)
+                Ok::<_, HydroError>((fx.to_shared(), fy.to_shared(), None, None))
             }
         };
-
-        return (block_index, runtime.spawn(fv).map(|fv| fv.unwrap()).shared());
-    }).collect();
-
+        fv_map.insert(block_index, runtime.spawn(fv).map(|fv| fv.unwrap()).shared());
+    } 
     let fv_map = Arc::new(fv_map);
 
-    let s1_vec = state.solution.iter().zip(block_data).map(|(solution, block)|
-    {
+    for (solution, block) in state.solution.iter().zip(block_data) {
         let solver   = solver.clone();
         let mesh     = mesh.clone();
         let fv_map   = fv_map.clone();
@@ -278,9 +265,9 @@ async fn advance_tokio_rk<H: 'static + Hydrodynamics>(
 
         let s1 = async move {
             let (fx, fy, vx, vy) = if ! solver.need_flux_communication() {
-                fv_map[&block.index].clone().await
+                fv_map[&block.index].clone().await?
             } else {
-                let fv_n = join_3by3(mesh.neighbor_block_indexes(block.index).map_3by3(|i| &fv_map[i])).await;
+                let fv_n = try_join_3by3(mesh.neighbor_block_indexes(block.index).map_3by3(|i| &fv_map[i])).await?;
                 let fx_n = fv_n.map_3by3(|fv| fv.0.clone());
                 let fy_n = fv_n.map_3by3(|fv| fv.1.clone());
                 let vx_n = fv_n.map_3by3(|fv| fv.2.clone().unwrap());
@@ -291,16 +278,22 @@ async fn advance_tokio_rk<H: 'static + Hydrodynamics>(
                 let vy_e = ndarray_ops::extend_from_neighbor_arrays_2d(&vy_n, 1, 1, 1, 1);
                 (fx_e.to_shared(), fy_e.to_shared(), Some(vx_e.to_shared()), Some(vy_e.to_shared()))
             };
-            scheme.compute_block_updated_solution(solution, fx, fy, vx, vy, &block, &solver, &mesh, time, dt)
+            Ok::<_, HydroError>(scheme.compute_block_updated_solution(solution, fx, fy, vx, vy, &block, &solver, &mesh, time, dt))
         };
-        runtime.spawn(s1).map(|f| f.unwrap()).shared()
-    });
+        s1_vec.push(runtime.spawn(s1).map(|f| f.unwrap()))
+    }
 
-    State {
+    let solution = join_all(s1_vec).await
+        .iter()
+        .cloned()
+        .collect::<Result<_, _>>()
+        .map_err(|e| e.with_orbital_state(solver.orbital_elements.orbital_state_from_time(time)))?;
+
+    Ok(State {
         time: state.time + dt,
         iteration: state.iteration + 1,
-        solution: join_all(s1_vec).await
-    }
+        solution: solution,
+    })
 }
 
 
@@ -315,17 +308,18 @@ pub fn advance_tokio<H: 'static + Hydrodynamics>(
     solver:     &Solver,
     dt:         f64,
     fold:       usize,
-    runtime:    &tokio::runtime::Runtime) -> State<H::Conserved>
+    runtime:    &tokio::runtime::Runtime) -> Result<State<H::Conserved>, HydroError>
 {
-    let update = |state| advance_tokio_rk(state, hydro, block_data, mesh, solver, dt, runtime);
+    let try_update = |state| try_advance_tokio_rk(state, hydro, block_data, mesh, solver, dt, runtime);
+    let rk = solver.runge_kutta();
 
     for _ in 0..fold {
-        state = runtime.block_on(solver.runge_kutta().advance_async(state, update, runtime));
+        state = runtime.block_on(rk.try_advance_async(state, try_update, runtime))?;
         if solver.using_tracers() {
             state = rebin_tracers_sync(state, &mesh, block_data);
         }
     }
-    return state;
+    Ok(state)
 }
 
 
@@ -361,14 +355,24 @@ fn rebin_tracers_sync<C: Conserved>(state: State<C>, mesh: &Mesh, block_data: &V
 // ============================================================================
 impl<H: Hydrodynamics> UpdateScheme<H>
 {
-    fn new(hydro: H) -> Self
-    {
-        Self{hydro: hydro}
+    fn new(hydro: H) -> Self {
+        Self{hydro}
     }
 
-    fn compute_block_primitive(&self, conserved: ArcArray<H::Conserved, Ix2>) -> Array<H::Primitive, Ix2>
+    fn try_block_primitive(
+        &self,
+        conserved: ArcArray<H::Conserved, Ix2>,
+        block: BlockData<H::Conserved>) -> Result<Array<H::Primitive, Ix2>, HydroError>
     {
-        conserved.mapv(|u| self.hydro.to_primitive(u))
+        let x: Result<Vec<_>, _> = conserved
+            .iter()
+            .zip(block.cell_centers.iter())
+            .map(|(&u, &xy)| self
+                .hydro
+                .try_to_primitive(u)
+                .map_err(|e| e.at_position(xy)))
+            .collect();
+        Ok(Array::from_shape_vec(conserved.dim(), x?).unwrap())
     }
 
     fn block_riemann_solutions(&self,
@@ -515,153 +519,4 @@ impl<H: Hydrodynamics> UpdateScheme<H>
             tracers: new_tracers,
         }
     }
-}
-
-
-
-
-
-
-
-
-/**
- * The code below advances the state using the old message-passing
- * parallelization strategy based on channels. I would prefer to either
- * deprecate it, since it duplicates msot of the update scheme, and will
- * thus need to be kept in sync manually as the scheme evolves. The only
- * reason to retain it is for benchmarking purposes.
- */
-
-
-
-
-// ============================================================================
-fn advance_channels_internal_block<H: Hydrodynamics>(
-    state:      BlockState<H::Conserved>,
-    hydro:      H,
-    block_data: &BlockData<H::Conserved>,
-    solver:     &Solver,
-    mesh:       &Mesh,
-    sender:     &crossbeam::Sender<Array<H::Primitive, Ix2>>,
-    receiver:   &crossbeam::Receiver<[[ArcArray<H::Primitive, Ix2>; 3]; 3]>,
-    dt:         f64) -> BlockState<H::Conserved>
-{
-    let scheme = UpdateScheme::new(hydro);
-
-    sender.send(scheme.compute_block_primitive(state.solution.conserved.clone())).unwrap();
-
-    let solution = state.solution;
-
-    let pe = ndarray_ops::extend_from_neighbor_arrays_2d(&receiver.recv().unwrap(), 2, 2, 2, 2);
-    let (fx, fy, _, _) = scheme.compute_block_fluxes(&pe, block_data, solver, mesh, state.time);
-    let s1 = scheme.compute_block_updated_solution(
-        solution,
-        fx.to_shared(),
-        fy.to_shared(),
-        None,
-        None,
-        block_data,
-        solver,
-        mesh,
-        state.time,
-        dt);
-
-    BlockState::<H::Conserved>{
-        time: state.time + dt,
-        iteration: state.iteration + 1,
-        solution: s1,
-    }
-}
-
-
-
-
-// ============================================================================
-fn advance_channels_internal<H: Hydrodynamics>(
-    solution:   &mut BlockSolution<H::Conserved>,
-    time:       f64,
-    hydro:      H,
-    block_data: &BlockData<H::Conserved>,
-    solver:     &Solver,
-    mesh:       &Mesh,
-    sender:     &crossbeam::Sender<Array<H::Primitive, Ix2>>,
-    receiver:   &crossbeam::Receiver<[[ArcArray<H::Primitive, Ix2>; 3]; 3]>,
-    dt:         f64,
-    fold:       usize)
-{
-    let update = |state| advance_channels_internal_block(state, hydro, block_data, solver, mesh, sender, receiver, dt);
-    let mut state = BlockState {
-        time: time,
-        iteration: Rational64::new(0, 1),
-        solution: solution.clone(),
-    };
-
-    for _ in 0..fold
-    {
-        state = solver.runge_kutta().advance(state, update);
-    }
-    *solution = state.solution;
-}
-
-
-
-
-// ============================================================================
-pub fn advance_channels<H: Hydrodynamics>(
-    state: &mut State<H::Conserved>,
-    hydro: H,
-    block_data: &Vec<BlockData<H::Conserved>>,
-    mesh: &Mesh,
-    solver: &Solver,
-    dt: f64,
-    fold: usize)
-{
-    if solver.need_flux_communication() {
-        todo!("flux communication with message-passing parallelization");
-    }
-    if solver.using_tracers() {
-        todo!("tracer particles with message-passing parallelization");
-    }
-    let time = state.time;
-
-    crossbeam::scope(|scope|
-    {
-        let mut receivers       = Vec::new();
-        let mut senders         = Vec::new();
-        let mut block_primitive = HashMap::new();
-
-        for (solution, block) in state.solution.iter_mut().zip(block_data)
-        {
-            let (their_s, my_r) = crossbeam::channel::unbounded();
-            let (my_s, their_r) = crossbeam::channel::unbounded();
-
-            senders.push(my_s);
-            receivers.push(my_r);
-
-            scope.spawn(move |_| advance_channels_internal(solution, time, hydro, block, solver, mesh, &their_s, &their_r, dt, fold));
-        }
-
-        for _ in 0..fold
-        {
-            for _ in 0..solver.rk_order
-            {
-                for (block_data, r) in block_data.iter().zip(receivers.iter())
-                {
-                    block_primitive.insert(block_data.index, r.recv().unwrap().to_shared());
-                }
-
-                for (block_data, s) in block_data.iter().zip(senders.iter())
-                {
-                    s.send(mesh.neighbor_block_indexes(block_data.index).map_3by3(|i| block_primitive
-                        .get(i)
-                        .unwrap()
-                        .clone()))
-                    .unwrap();
-                }
-            }
-
-            state.iteration += 1;
-            state.time += dt;
-        }
-    }).unwrap();
 }

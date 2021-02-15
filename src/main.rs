@@ -32,25 +32,21 @@ use traits::{
     Hydrodynamics,
     Conserved,
 };
-
 use physics::{
     Euler,
     ItemizedChange,
     Isothermal,
     Solver,
 };
-
 use mesh::{
     Mesh,
     BlockIndex,
 };
-
 use scheme::{
     State,
     BlockSolution,
     BlockData,
 };
-
 use disks::{
     DiskModel
 };
@@ -103,6 +99,8 @@ fn main() -> anyhow::Result<()>
         .item("num_tracers"     , 0      , "Number of tracers per block")
         .item("one_body"        , false  , "Collapse the binary to a single body (validation of central potential)")
         .item("plm"             , 1.5    , "PLM parameter theta [1.0, 2.0] (0.0 reverts to PCM)")
+        .item("rdf"             , 0.0    , "Relative density floor")
+        .item("rfmr"            , 0.0    , "Relative fake mass rate")
         .item("rk_order"        , 2      , "Runge-Kutta time integration order [1|2|3]")
         .item("sink_radius"     , 0.05   , "Radius of the sink region [a]")
         .item("sink_rate"       , 10.0   , "Sink rate to model accretion [Omega]")
@@ -129,8 +127,7 @@ fn main() -> anyhow::Result<()>
 // ============================================================================
 #[derive(Clap)]
 #[clap(version=VERSION_AND_BUILD, author=clap::crate_authors!(", "))]
-struct App
-{
+struct App {
     #[clap(about="Model parameters")]
     model_parameters: Vec<String>,
 
@@ -149,7 +146,7 @@ struct App
     #[clap(long, default_value="1", about="Number of worker threads to use")]
     threads: usize,
 
-    #[clap(long, about="Parallelize on the tokio runtime [default: message passing]")]
+    #[clap(long, about="Parallelize on the tokio runtime [legacy: this is now the only option]")]
     tokio: bool,
 
     #[clap(long, about="Do flux communication even if it's not needed [benchmarking]")]
@@ -165,8 +162,7 @@ struct App
 // ============================================================================
 impl App
 {
-    fn restart_file(&self) -> anyhow::Result<Option<verified::File>>
-    {
+    fn restart_file(&self) -> anyhow::Result<Option<verified::File>> {
         if let Some(restart) = self.restart.clone() {
             Ok(Some(verified::file_or_most_recent_matching_in_directory(restart, "chkpt.????.h5")?))
         } else {
@@ -174,8 +170,7 @@ impl App
         }
     }
 
-    fn output_rundir_child(&self, filename: &str) -> anyhow::Result<Option<verified::File>>
-    {
+    fn output_rundir_child(&self, filename: &str) -> anyhow::Result<Option<verified::File>> {
         if let Ok(file) = self.output_directory()?.existing_child(filename) {
             Ok(Some(file))
         } else {
@@ -183,8 +178,7 @@ impl App
         }
     }
 
-    fn output_directory(&self) -> anyhow::Result<verified::Directory>
-    {
+    fn output_directory(&self) -> anyhow::Result<verified::Directory> {
         if let Some(outdir) = self.outdir.clone() {
             Ok(verified::Directory::require(outdir)?)
         } else if let Some(restart) = &self.restart_file()? {
@@ -194,8 +188,7 @@ impl App
         }
     }
 
-    fn restart_model_parameters(&self) -> anyhow::Result<HashMap<String, kind_config::Value>>
-    {
+    fn restart_model_parameters(&self) -> anyhow::Result<HashMap<String, kind_config::Value>> {
         if let Some(restart) = self.restart_file()? {
             Ok(io::read_model(&restart)?)
         } else {
@@ -203,8 +196,7 @@ impl App
         }
     }
 
-    fn compute_units(&self, num_blocks: usize) -> usize
-    {
+    fn compute_units(&self, num_blocks: usize) -> usize {
         if self.tokio {
             num_cpus::get_physical().min(self.threads)
         } else {
@@ -237,8 +229,7 @@ impl App
 // ============================================================================
 #[derive(hdf5::H5Type)]
 #[repr(C)]
-pub struct TimeSeriesSample<C: Conserved>
-{
+pub struct TimeSeriesSample<C: Conserved> {
     pub time: f64,
     pub integrated_source_terms: ItemizedChange<C>,
     pub orbital_elements_change: ItemizedChange<kepler_two_body::OrbitalElements>,
@@ -250,8 +241,7 @@ pub struct TimeSeriesSample<C: Conserved>
 // ============================================================================
 #[derive(Clone, hdf5::H5Type)]
 #[repr(C)]
-pub struct RecurringTask
-{
+pub struct RecurringTask {
     count: usize,
     next_time: f64,
 }
@@ -260,17 +250,14 @@ pub struct RecurringTask
 
 
 // ============================================================================
-impl RecurringTask
-{
-    fn new() -> Self
-    {
-        Self{
+impl RecurringTask {
+    fn new() -> Self {
+        Self {
             count: 0,
             next_time: 0.0,
         }
     }
-    fn advance(&mut self, interval: f64)
-    {
+    fn advance(&mut self, interval: f64) {
         self.count += 1;
         self.next_time += interval;
     }
@@ -281,8 +268,7 @@ impl RecurringTask
 
 // ============================================================================
 #[derive(Clone)]
-pub struct Tasks
-{
+pub struct Tasks {
     pub write_checkpoint:     RecurringTask,
     pub record_time_sample:   RecurringTask,
     pub write_tracer_output:  RecurringTask,
@@ -297,8 +283,7 @@ pub struct Tasks
 
 
 // ============================================================================
-impl From<Tasks> for Vec<(String, RecurringTask)>
-{
+impl From<Tasks> for Vec<(String, RecurringTask)> {
     fn from(tasks: Tasks) -> Self {
         vec![
             ("write_checkpoint".into(), tasks.write_checkpoint),
@@ -328,9 +313,8 @@ impl From<Vec<(String, RecurringTask)>> for Tasks
 // ============================================================================
 impl Tasks
 {
-    fn new() -> Self
-    {
-        Self{
+    fn new() -> Self {
+        Self {
             write_checkpoint:     RecurringTask::new(),
             record_time_sample:   RecurringTask::new(),
             write_tracer_output:  RecurringTask::new(),
@@ -342,8 +326,7 @@ impl Tasks
         }
     }
 
-    fn report_progress(&mut self, time: f64, number_of_orbits: f64)
-    {
+    fn report_progress(&mut self, time: f64, number_of_orbits: f64) {
         if self.call_count_this_run > 0 {
             let hours = self.last_report_progress.elapsed().as_secs_f64() / 3600.0;
             println!("");
@@ -394,6 +377,20 @@ impl Tasks
         io::write_checkpoint(&fname_chkpt, &state, &block_data, &model.value_map(), &self)?;
         io::write_time_series(&fname_time_series, time_series, &model.value_map())?;
 
+        Ok(())
+    }
+
+    fn write_failed_checkpoint<C: Conserved>(&mut self,
+        state: &State<C>,
+        block_data: &Vec<BlockData<C>>,
+        model: &Form,
+        app: &App) -> anyhow::Result<()>
+    {
+        let outdir = app.output_directory()?;
+        let fname_chkpt       = outdir.child("chkpt.fail.h5");
+
+        println!("write checkpoint {}", fname_chkpt);
+        io::write_checkpoint(&fname_chkpt, &state, &block_data, &model.value_map(), &self)?;
         Ok(())
     }
 
@@ -506,8 +503,7 @@ fn make_disk_model<H: Hydrodynamics>(model: &Form, hydro: &H) -> anyhow::Result<
 
 
 // ============================================================================
-trait InitialModel: Hydrodynamics
-{
+trait InitialModel: Hydrodynamics {
     fn primitive_at(&self, disk: &Box<dyn DiskModel>, xy: (f64, f64)) -> Self::Primitive;
 }
 
@@ -515,10 +511,8 @@ trait InitialModel: Hydrodynamics
 
 
 // ============================================================================
-impl InitialModel for Isothermal
-{
-    fn primitive_at(&self, disk: &Box<dyn DiskModel>, xy: (f64, f64)) -> Self::Primitive
-    {
+impl InitialModel for Isothermal {
+    fn primitive_at(&self, disk: &Box<dyn DiskModel>, xy: (f64, f64)) -> Self::Primitive {
         let (x, y) = xy;
         let r = (x * x + y * y).sqrt();
         let sd = disk.surface_density(r);
@@ -531,10 +525,8 @@ impl InitialModel for Isothermal
     }
 }
 
-impl InitialModel for Euler
-{
-    fn primitive_at(&self, disk: &Box<dyn DiskModel>, xy: (f64, f64)) -> Self::Primitive
-    {
+impl InitialModel for Euler {
+    fn primitive_at(&self, disk: &Box<dyn DiskModel>, xy: (f64, f64)) -> Self::Primitive {
         let (x, y) = xy;
         let r = (x * x + y * y).sqrt();
         let sd = disk.surface_density(r);
@@ -556,17 +548,15 @@ impl InitialModel for Euler
  * structures. It is parameterized around System: Hydrodynamics and a Model:
  * InitialModel.
  */
-struct Driver<System: Hydrodynamics + InitialModel>
-{
+struct Driver<System: Hydrodynamics + InitialModel> {
     system: System,
 }
 
-impl<System: Hydrodynamics + InitialModel> Driver<System> where System::Conserved: hdf5::H5Type
-{
-    fn new(system: System) -> Self
-    {
+impl<System: Hydrodynamics + InitialModel> Driver<System> where System::Conserved: hdf5::H5Type {
+    fn new(system: System) -> Self {
         Self{system: system}
     }
+
     fn initial_tracers(&self, u0: &ArcArray<System::Conserved, Ix2>, block_index: BlockIndex, mesh: &Mesh, ntracers: usize) -> Vec<Tracer>
     {
         let x0          =  mesh.block_start(block_index);
@@ -593,6 +583,7 @@ impl<System: Hydrodynamics + InitialModel> Driver<System> where System::Conserve
             .map(|(xy, n)| Tracer::new(xy, weight(xy), get_id(n)))
             .collect()
     }
+
     fn initial_solution(&self, block_index: BlockIndex, mesh: &Mesh, model: &Form) -> anyhow::Result<BlockSolution<System::Conserved>>
     {
         let disk = make_disk_model(model, &self.system)?;
@@ -609,8 +600,8 @@ impl<System: Hydrodynamics + InitialModel> Driver<System> where System::Conserve
             tracers: Arc::new(self.initial_tracers(&u0, block_index, mesh, mesh.tracers_per_block)),
         })
     }
-    fn initial_state(&self, mesh: &Mesh, model: &Form) -> anyhow::Result<State<System::Conserved>>
-    {
+
+    fn initial_state(&self, mesh: &Mesh, model: &Form) -> anyhow::Result<State<System::Conserved>> {
         let solution: anyhow::Result<_> = mesh
             .block_indexes()
             .iter()
@@ -623,12 +614,12 @@ impl<System: Hydrodynamics + InitialModel> Driver<System> where System::Conserve
             solution: solution?,
         })
     }
-    fn initial_time_series(&self) -> Vec<TimeSeriesSample<System::Conserved>>
-    {
+
+    fn initial_time_series(&self) -> Vec<TimeSeriesSample<System::Conserved>> {
         Vec::new()
     }
-    fn block_data(&self, mesh: &Mesh, model: &Form) -> anyhow::Result<Vec<BlockData<System::Conserved>>>
-    {
+
+    fn block_data(&self, mesh: &Mesh, model: &Form) -> anyhow::Result<Vec<BlockData<System::Conserved>>> {
         mesh.block_indexes().iter().map(|&block_index| {
             Ok(BlockData{
                 cell_centers:      mesh.cell_centers(block_index).to_shared(),
@@ -650,8 +641,7 @@ impl<System: Hydrodynamics + InitialModel> Driver<System> where System::Conserve
 
 // ============================================================================
 impl Solver {
-    fn new(model: &Form, app: &App) -> Self
-    {
+    fn new(model: &Form, app: &App) -> Self {
         let one_body: bool = model.get("one_body").into();
 
         let a = if one_body {1e-9} else {1.0};
@@ -660,23 +650,25 @@ impl Solver {
         let e:f64 = model.get("eccentricity").into();
 
         Self{
-            alpha:            model.get("alpha").into(),
-            buffer_rate:      model.get("buffer_rate").into(),
-            buffer_scale:     model.get("buffer_scale").into(),
-            cfl:              model.get("cfl").into(),
-            domain_radius:    model.get("domain_radius").into(),
-            mach_number:      model.get("mach_number").into(),
-            nu:               model.get("nu").into(),
-            num_tracers:      model.get("num_tracers").into(),
-            lambda:           model.get("lambda").into(),
-            plm:              model.get("plm").into(),
-            rk_order:         model.get("rk_order").into(),
-            sink_radius:      model.get("sink_radius").into(),
-            sink_rate:        model.get("sink_rate").into(),
-            softening_length: model.get("softening_length").into(),
-            force_flux_comm:  app.flux_comm,
-            orbital_elements: kepler_two_body::OrbitalElements(a, m, q, e),
-            tracer_io_ids:    app.tracer_io_id_vec(),
+            alpha:                   model.get("alpha").into(),
+            buffer_rate:             model.get("buffer_rate").into(),
+            buffer_scale:            model.get("buffer_scale").into(),
+            cfl:                     model.get("cfl").into(),
+            domain_radius:           model.get("domain_radius").into(),
+            mach_number:             model.get("mach_number").into(),
+            nu:                      model.get("nu").into(),
+            num_tracers:             model.get("num_tracers").into(),
+            lambda:                  model.get("lambda").into(),
+            plm:                     model.get("plm").into(),
+            rk_order:                model.get("rk_order").into(),
+            sink_radius:             model.get("sink_radius").into(),
+            sink_rate:               model.get("sink_rate").into(),
+            softening_length:        model.get("softening_length").into(),
+            force_flux_comm:         app.flux_comm,
+            orbital_elements:        kepler_two_body::OrbitalElements(a, m, q, e),
+            relative_density_floor:  model.get("rdf").into(),
+            relative_fake_mass_rate: model.get("rfmr").into(),
+            tracer_io_ids:           app.tracer_io_id_vec(),
         }
     }
 }
@@ -784,24 +776,24 @@ fn run<S, C>(driver: Driver<S>, app: App, model: Form) -> anyhow::Result<()>
     println!();
 
 
-    // Create the Tokio runtime, if we're using it
+    // Create the Tokio runtime
     // ========================================================================
-    let runtime = if app.tokio {
-        Some(Builder::new_multi_thread().worker_threads(app.threads).build()?)
-    } else {
-        None
-    };
+    if app.tokio {
+        println!("Note: the --tokio flag is deprecated, it's now the only option");
+    }
+    let runtime = Builder::new_multi_thread().worker_threads(app.threads).build()?;
 
 
     tasks.perform(&state, driver.system, &mut time_series, &block_data, &solver, &mesh, &model, &app)?;
 
-    while state.time < tfinal
-    {
-        if let Some(runtime) = &runtime {
-            state = scheme::advance_tokio(state, driver.system, &block_data, &mesh, &solver, dt, app.fold, runtime);
-        } else {
-            scheme::advance_channels(&mut state, driver.system, &block_data, &mesh, &solver, dt, app.fold);
-        }
+    while state.time < tfinal {
+        state = match scheme::advance_tokio(state.clone(), driver.system, &block_data, &mesh, &solver, dt, app.fold, &runtime) {
+            Ok(s) => s,
+            Err(e) => {
+                tasks.write_failed_checkpoint(&state, &block_data, &model, &app)?;
+                return Err(e)?
+            }
+        };
         tasks.perform(&state, driver.system, &mut time_series, &block_data, &solver, &mesh, &model, &app)?;
     }
     Ok(())
