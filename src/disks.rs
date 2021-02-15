@@ -130,10 +130,6 @@ impl DiskModel for FlatDisk {
     }
 
     fn phi_velocity_squared(&self, r: f64) -> f64 {
-        // let r_inv  = 1. / r;
-        // let q_term = 1. + 3. / 16. * r_inv * r_inv;
-        // let p_term = self.sound_speed_squared(r);
-        // (G * M * r_inv * q_term - p_term) * self.fcavity(r).powi(2)
         self.kepler_speed_squared(r) * self.fcavity(r)
     }
 
@@ -163,7 +159,7 @@ impl FlatDisk {
 
     fn fcavity(&self, r: f64) -> f64 {
         let rc = self.radius;
-        exp(-(rc / r).powi(4) + (rc / r).powi(2))
+        exp(-(rc / r).powi(4))
     }
 
     fn sigma0(&self) -> f64 {
@@ -246,7 +242,7 @@ impl AlphaDisk {
 
     fn fcavity(&self, r: f64) -> f64 {
         let r0 = self.radius;
-        exp(-(r0 / r).powi(4) + (r0 / r).powi(2))
+        exp(-(r0 / r).powi(4))
     }
 
     fn sigma0(&self) -> f64 {
