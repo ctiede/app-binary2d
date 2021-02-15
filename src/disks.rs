@@ -116,6 +116,7 @@ pub struct FlatDisk {
     pub softening_length: f64,
     pub gamma: f64,
     pub mdot0: f64,
+    pub initial_floor: f64
 }
 
 
@@ -141,7 +142,7 @@ impl DiskModel for FlatDisk {
     }
 
     fn surface_density(&self, r: f64) -> f64 {
-        self.sigma0() * self.fcavity(r)
+        self.sigma0() * self.fcavity(r) + self.initial_floor
     }
 
     fn radial_velocity(&self, r: f64) -> f64 {
@@ -186,6 +187,7 @@ pub struct AlphaDisk {
     pub ell0: f64,
     pub mdot0: f64,
     pub gamma: f64,
+    pub initial_floor: f64
 }
 
 
@@ -207,7 +209,7 @@ impl DiskModel for AlphaDisk {
     }
 
     fn surface_density(&self, r: f64) -> f64 {
-        self.sigma(r) * self.fcavity(r)
+        self.sigma(r) * self.fcavity(r) + self.initial_floor
     }
 
     fn radial_velocity(&self, r: f64) -> f64 {
