@@ -130,7 +130,7 @@ impl DiskModel for FlatDisk {
     }
 
     fn phi_velocity_squared(&self, r: f64) -> f64 {
-        self.kepler_speed_squared(r) * self.fcavity(r)
+        self.kepler_speed_squared(r) 
     }
 
     fn vertically_integrated_pressure(&self, r: f64) -> f64 {
@@ -142,7 +142,12 @@ impl DiskModel for FlatDisk {
     }
 
     fn radial_velocity(&self, r: f64) -> f64 {
-        -1.5 * self.nu / r * self.fcavity(r)
+        if r > 1.0 {
+            -1.5 * self.nu / r 
+        }
+        else {
+            -1.5 * self.nu
+        }
     }
 }
 
@@ -197,7 +202,12 @@ impl DiskModel for AlphaDisk {
     }
 
     fn phi_velocity_squared(&self, r: f64) -> f64 {
-        self.vphi_squared(r) * self.fcavity(r).powi(2)
+        if r > 1.0 {
+            self.vphi_squared(r)
+        }
+        else {
+            self.vphi_squared(1.0)
+        }
     }
 
     fn vertically_integrated_pressure(&self, r: f64) -> f64 {
@@ -209,7 +219,12 @@ impl DiskModel for AlphaDisk {
     }
 
     fn radial_velocity(&self, r: f64) -> f64 {
-        - self.mdot0 / (2. * PI * r * self.sigma(r)) * self.fcavity(r)
+        if r > 1.0 {
+            - self.mdot0 / (2. * PI * r * self.sigma(r))
+        }
+        else {
+            - self.mdot0 / (2. * PI * self.sigma(1.0))
+        }
     }
 }
 
