@@ -137,17 +137,18 @@ impl DiskModel for FlatDisk {
         self.surface_density(r) * self.sound_speed_squared(r) / self.gamma
     }
 
-    fn surface_density(&self, r: f64) -> f64 {
-        self.sigma0() * self.fcavity(r) + self.initial_floor
+    fn surface_density(&self, _: f64) -> f64 {
+        self.sigma0()
     }
 
-    fn radial_velocity(&self, r: f64) -> f64 {
-        if r > 1.0 {
-            -1.5 * self.nu / r 
-        }
-        else {
-            -1.5 * self.nu
-        }
+    fn radial_velocity(&self, _r: f64) -> f64 {
+        // if r > 1.0 {
+        //     -1.5 * self.nu / r 
+        // }
+        // else {
+        //     -1.5 * self.nu
+        // }
+        0.0
     }
 }
 
@@ -162,15 +163,9 @@ impl FlatDisk {
         self.kepler_speed_squared(r) / self.mach_number.powi(2)
     }
 
-    fn fcavity(&self, r: f64) -> f64 {
-        let rc = self.radius;
-        exp(-(rc / r).powi(4))
-    }
-
     fn sigma0(&self) -> f64 {
         self.mdot0 / (3. * PI * self.nu)
     }
-
 }
 
 
@@ -202,12 +197,7 @@ impl DiskModel for AlphaDisk {
     }
 
     fn phi_velocity_squared(&self, r: f64) -> f64 {
-        if r > 1.0 {
-            self.vphi_squared(r)
-        }
-        else {
-            self.vphi_squared(1.0)
-        }
+            self.vphi_squared(r) * self.fcavity(r)
     }
 
     fn vertically_integrated_pressure(&self, r: f64) -> f64 {
@@ -219,12 +209,7 @@ impl DiskModel for AlphaDisk {
     }
 
     fn radial_velocity(&self, r: f64) -> f64 {
-        if r > 1.0 {
-            - self.mdot0 / (2. * PI * r * self.sigma(r))
-        }
-        else {
-            - self.mdot0 / (2. * PI * self.sigma(1.0))
-        }
+        - self.mdot0 / (2. * PI * r * self.sigma(r)) * self.fcavity(r)
     }
 }
 
