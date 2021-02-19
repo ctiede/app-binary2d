@@ -82,7 +82,7 @@ fn main() -> anyhow::Result<()>
         .item("buffer_scale"    , 1.0    , "Length scale of the buffer transition region [a]")
         .item("cfl"             , 0.4    , "CFL parameter [~0.4-0.7]")
         .item("cpi"             , 1.0    , "Checkpoint interval [Orbits]")
-        .item("disk_type"       , "torus", "Disk model [torus|pringle81|flat-disk|alpha-disk]")
+        .item("disk_type"       , "torus", "Disk model [torus|infinite|pringle81]")
         .item("disk_mass"       , 1e-3   , "Total disk mass")
         .item("disk_radius"     , 3.0    , "Disk truncation radius (meaning depends on disk_type)")
         .item("disk_width"      , 1.5    , "Disk width (model-dependent)")
@@ -106,7 +106,7 @@ fn main() -> anyhow::Result<()>
         .item("sink_rate"       , 10.0   , "Sink rate to model accretion [Omega]")
         .item("softening_length", 0.05   , "Gravitational softening length [a]")
         .item("tfinal"          , 0.0    , "Time at which to stop the simulation [Orbits]")
-        .item("toi"             , 1.0    , "Tracer output interval [Orbits]")
+        .item("toi"             , 1e3    , "Tracer output interval [Orbits]")
         .item("tor"             , 1.0    , "Tracer output ratio")
         .item("tsi"             , 0.1    , "Time series interval [Orbits]")
         .merge_value_map_freezing(&app.restart_model_parameters()?, &parameters_not_to_supercede_on_restart)?
@@ -469,24 +469,29 @@ fn make_disk_model<H: Hydrodynamics>(model: &Form, hydro: &H) -> anyhow::Result<
             domain_radius:    model.get("domain_radius").into(),
             gamma:            hydro.gamma_law_index(),
         }),
-        "flat-disk" => Box::new(disks::FlatDisk{
-            nu:               model.get("nu").into(),
-            radius:           model.get("disk_radius").into(),
-            mach_number:      model.get("mach_number").into(),
-            softening_length: model.get("softening_length").into(),
-            mdot0:            model.get("disk_mdot0").into(),
-            gamma:            hydro.gamma_law_index(),
-            initial_floor:    1e-8,
-        }),
-        "alpha-disk" => Box::new(disks::AlphaDisk{
-            alpha:            model.get("alpha").into(),
-            radius:           model.get("disk_radius").into(),
-            mach_number:      model.get("mach_number").into(),
-            softening_length: model.get("softening_length").into(),
-            ell0:             model.get("disk_ell0").into(),
-            mdot0:            model.get("disk_mdot0").into(),
-            gamma:            hydro.gamma_law_index(),
-            initial_floor:    1e-8,
+        "infinite" => Box::new(
+            if f64::from(model.get("alpha")) > 0.0 {
+                disks::InfiniteDisk::Alpha(disks::AlphaDisk {
+                    alpha:            model.get("alpha").into(),
+                    radius:           model.get("disk_radius").into(),
+                    mach_number:      model.get("mach_number").into(),
+                    softening_length: model.get("softening_length").into(),
+                    ell0:             model.get("disk_ell0").into(),
+                    mdot0:            model.get("disk_mdot0").into(),
+                    gamma:            hydro.gamma_law_index(),
+                    initial_floor:    1e-8,
+                })
+            } 
+            else {
+                disks::InfiniteDisk::Flat(disks::FlatDisk {
+                    nu:               model.get("nu").into(),
+                    radius:           model.get("disk_radius").into(),
+                    mach_number:      model.get("mach_number").into(),
+                    softening_length: model.get("softening_length").into(),
+                    mdot0:            model.get("disk_mdot0").into(),
+                    gamma:            hydro.gamma_law_index(),
+                    initial_floor:    1e-8 
+                })
         }),
         "pringle81" => Box::new(disks::Pringle81{
             // load model parameters here

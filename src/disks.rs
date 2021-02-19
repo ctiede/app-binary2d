@@ -30,10 +30,6 @@ pub struct Torus {
     pub gamma: f64,
 }
 
-
-
-
-// ============================================================================
 impl DiskModel for Torus {
     fn validation_message(&self) -> Option<String> {
         if self.failure_radius() < self.domain_radius * f64::sqrt(2.0) {
@@ -104,6 +100,42 @@ impl Torus {
 
 
 // ============================================================================
+pub enum InfiniteDisk {
+    Flat (FlatDisk),
+    Alpha(AlphaDisk),
+}
+
+impl DiskModel for InfiniteDisk {
+
+    fn validation_message(&self) -> Option<String> {
+        None
+    }
+
+    fn phi_velocity_squared(&self, r: f64) -> f64 {
+        match self {
+            InfiniteDisk::Flat (disk) => disk.phi_velocity_squared(r),
+            InfiniteDisk::Alpha(disk) => disk.phi_velocity_squared(r),
+        }
+    }
+
+    fn vertically_integrated_pressure(&self, r: f64) -> f64 {
+        match self {
+            InfiniteDisk::Flat (disk) => disk.vertically_integrated_pressure(r),
+            InfiniteDisk::Alpha(disk) => disk.vertically_integrated_pressure(r),
+        }
+    }
+
+    fn surface_density(&self, r: f64) -> f64 {
+        match self {
+            InfiniteDisk::Flat (disk) => disk.surface_density(r),
+            InfiniteDisk::Alpha(disk) => disk.surface_density(r),
+        }
+    }
+}
+
+
+
+// ============================================================================
 pub struct FlatDisk {
     pub nu: f64,
     pub radius: f64,
@@ -114,10 +146,6 @@ pub struct FlatDisk {
     pub initial_floor: f64
 }
 
-
-
-
-// ============================================================================
 impl DiskModel for FlatDisk {
 
     fn validation_message(&self) -> Option<String> {
@@ -133,7 +161,7 @@ impl DiskModel for FlatDisk {
     }
 
     fn surface_density(&self, _: f64) -> f64 {
-        self.sigma0()
+        self.mdot0 / (3. * PI * self.nu)
     }
 }
 
@@ -146,10 +174,6 @@ impl FlatDisk {
 
     fn sound_speed_squared(&self, r: f64) -> f64 {
         self.kepler_speed_squared(r) / self.mach_number.powi(2)
-    }
-
-    fn sigma0(&self) -> f64 {
-        self.mdot0 / (3. * PI * self.nu)
     }
 }
 
@@ -171,10 +195,6 @@ pub struct AlphaDisk {
     pub initial_floor: f64
 }
 
-
-
-
-// ============================================================================
 impl DiskModel for AlphaDisk {
 
     fn validation_message(&self) -> Option<String> {
@@ -182,7 +202,7 @@ impl DiskModel for AlphaDisk {
     }
 
     fn phi_velocity_squared(&self, r: f64) -> f64 {
-            self.vphi_squared(r) * self.fcavity(r)
+            self.vphi_squared(r) * self.fcavity(r).powi(2)
     }
 
     fn vertically_integrated_pressure(&self, r: f64) -> f64 {
@@ -238,10 +258,6 @@ impl AlphaDisk {
 pub struct Pringle81 {
 }
 
-
-
-
-// ============================================================================
 impl DiskModel for Pringle81 {
     fn validation_message(&self) -> Option<String> {
         None
