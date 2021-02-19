@@ -14,7 +14,6 @@ pub trait DiskModel {
     fn phi_velocity_squared(&self, r: f64) -> f64;
     fn vertically_integrated_pressure(&self, r: f64) -> f64;
     fn surface_density(&self, r: f64) -> f64;
-    fn radial_velocity(&self, r: f64) -> f64;
 }
 
 
@@ -59,10 +58,6 @@ impl DiskModel for Torus {
         let r0 = self.radius;
         let dr = self.width;
         self.sigma0() * exp(-((r - r0) / dr).powi(2))
-    }
-
-    fn radial_velocity(&self, _r: f64) -> f64 {
-        0.0
     }
 }
 
@@ -140,16 +135,6 @@ impl DiskModel for FlatDisk {
     fn surface_density(&self, _: f64) -> f64 {
         self.sigma0()
     }
-
-    fn radial_velocity(&self, _r: f64) -> f64 {
-        // if r > 1.0 {
-        //     -1.5 * self.nu / r 
-        // }
-        // else {
-        //     -1.5 * self.nu
-        // }
-        0.0
-    }
 }
 
 impl FlatDisk {
@@ -207,10 +192,6 @@ impl DiskModel for AlphaDisk {
     fn surface_density(&self, r: f64) -> f64 {
         self.sigma(r) * self.fcavity(r) + self.initial_floor
     }
-
-    fn radial_velocity(&self, r: f64) -> f64 {
-        - self.mdot0 / (2. * PI * r * self.sigma(r)) * self.fcavity(r)
-    }
 }
 
 impl AlphaDisk {
@@ -248,7 +229,6 @@ impl AlphaDisk {
     fn sigma0(&self) -> f64 {
         self.mdot0 / (3. * PI * self.alpha / self.mach_number.powi(2))
     }
-
 }
 
 
@@ -276,10 +256,6 @@ impl DiskModel for Pringle81 {
     }
 
     fn surface_density(&self, _r: f64) -> f64 {
-        todo!()
-    }
-
-    fn radial_velocity(&self, _r: f64) -> f64 {
         todo!()
     }
 }

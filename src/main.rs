@@ -517,9 +517,8 @@ impl InitialModel for Isothermal {
         let r = (x * x + y * y).sqrt();
         let sd = disk.surface_density(r);
         let vp = disk.phi_velocity_squared(r).sqrt();
-        let vr = disk.radial_velocity(r);
-        let vx = vp * (-y / r) + vr * (x / r);
-        let vy = vp * ( x / r) + vr * (y / r);
+        let vx = vp * (-y / r);
+        let vy = vp * ( x / r);
         assert!(! vp.is_nan());
         hydro_iso2d::Primitive(sd, vx, vy)
     }
@@ -531,10 +530,9 @@ impl InitialModel for Euler {
         let r = (x * x + y * y).sqrt();
         let sd = disk.surface_density(r);
         let vp = disk.phi_velocity_squared(r).sqrt();
-        let vr = disk.radial_velocity(r);
         let pg = disk.vertically_integrated_pressure(r);
-        let vx = vp * (-y / r) + vr * (x / r);
-        let vy = vp * ( x / r) + vr * (y / r);
+        let vx = vp * (-y / r);
+        let vy = vp * ( x / r);
         assert!(! vp.is_nan());
         return hydro_euler::euler_2d::Primitive(sd, vx, vy, pg);
     }
