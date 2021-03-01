@@ -261,6 +261,9 @@ impl RecurringTask {
         self.count += 1;
         self.next_time += interval;
     }
+    fn with_next_time(&mut self, next_time: f64) {
+        self.next_time = next_time;
+    }
 }
 
 
@@ -326,6 +329,12 @@ impl Tasks
         }
     }
 
+    fn reset_next_times(&mut self, current_time: f64, model: &Form) {
+        self.write_checkpoint   .with_next_time(current_time + ORBITAL_PERIOD * f64::from(model.get("cpi")));
+        self.record_time_sample .with_next_time(current_time + ORBITAL_PERIOD * f64::from(model.get("tsi")));
+        self.write_tracer_output.with_next_time(current_time + ORBITAL_PERIOD * f64::from(model.get("toi")));
+    }
+
     fn report_progress(&mut self, time: f64, number_of_orbits: f64) {
         if self.call_count_this_run > 0 {
             let hours = self.last_report_progress.elapsed().as_secs_f64() / 3600.0;
@@ -387,7 +396,7 @@ impl Tasks
         app: &App) -> anyhow::Result<()>
     {
         let outdir = app.output_directory()?;
-        let fname_chkpt       = outdir.child("chkpt.fail.h5");
+        let fname_chkpt = outdir.child("chkpt.fail.h5");
 
         println!("write checkpoint {}", fname_chkpt);
         io::write_checkpoint(&fname_chkpt, &state, &block_data, &model.value_map(), &self)?;
@@ -407,7 +416,7 @@ impl Tasks
         let outdir = app.output_directory()?;
         let fname  = outdir.child(&format!("tracers.{:04}.h5", self.write_tracer_output.count));
 
-        self.write_tracer_output.advance(model.get("toi").into());
+        self.write_tracer_output.advance(ORBITAL_PERIOD * f64::from(model.get("toi")));
 
         println!("write tracers {}", fname);
         io::write_tracer_output(&fname, &state, hydro, &block_data, &solver, &mesh, &model, time)?;
@@ -442,7 +451,7 @@ impl Tasks
         if state.time >= self.write_checkpoint.next_time {
             self.write_checkpoint(state, time_series, block_data, model, app)?;
         }
-        if state.time / ORBITAL_PERIOD >= self.write_tracer_output.next_time && state.total_tracers() > 0
+        if state.time >= self.write_tracer_output.next_time && state.total_tracers() > 0
         {
             self.write_tracer_output(state, hydro, block_data, solver, mesh, model, state.time, app)?;
         }
@@ -719,6 +728,7 @@ fn run<S, C>(driver: Driver<S>, app: App, model: Form) -> anyhow::Result<()>
     if let Some(restart_file) = app.restart_file()? {
         state = io::read_state(&restart_file, &driver.system)?;
         tasks = io::read_tasks(&restart_file)?;
+        tasks.reset_next_times(state.time, &model);
 
         if state.total_tracers() == 0 && i64::from(model.get("num_tracers")) > 0 {
             let solution = state.solution
