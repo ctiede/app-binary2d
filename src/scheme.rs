@@ -58,7 +58,7 @@ pub struct BlockSolution<C: Conserved> {
 
 impl<C: Conserved> BlockSolution<C>
 {
-    fn with_tracers(&self, new_tracers: Vec<Tracer>) -> Self
+    pub fn with_tracers(&self, new_tracers: Vec<Tracer>) -> Self
     {
         BlockSolution{
             conserved: self.conserved.clone(),
@@ -89,6 +89,20 @@ pub struct State<C: Conserved> {
     pub time: f64,
     pub iteration: Rational64,
     pub solution: Vec<BlockSolution<C>>,
+}
+
+impl<C: Conserved> State<C> {
+    pub fn with_solution(&self, solution: Vec<BlockSolution<C>>) -> Self {
+        State {
+            time: self.time,
+            iteration: self.iteration,
+            solution: solution,
+        }
+    }
+
+    pub fn total_tracers(&self) -> usize {
+        self.solution.iter().map(|s| s.tracers.len()).sum()
+    }
 }
 
 

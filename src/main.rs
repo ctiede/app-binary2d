@@ -719,6 +719,15 @@ fn run<S, C>(driver: Driver<S>, app: App, model: Form) -> anyhow::Result<()>
     if let Some(restart_file) = app.restart_file()? {
         state = io::read_state(&restart_file, &driver.system)?;
         tasks = io::read_tasks(&restart_file)?;
+
+        if state.total_tracers() == 0 && i64::from(model.get("num_tracers")) > 0 {
+            let solution = state.solution
+                .iter()
+                .zip(mesh.block_indexes())
+                .map(|(block, index)| block.with_tracers(driver.initial_tracers(&block.conserved, index, &mesh, mesh.tracers_per_block)))
+                .collect();
+            state = state.with_solution(solution);
+        }
     } else {
         state = driver.initial_state(&mesh, &model)?;
         tasks = Tasks::new();
