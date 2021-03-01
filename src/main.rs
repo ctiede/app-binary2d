@@ -785,6 +785,7 @@ fn run<S, C>(driver: Driver<S>, app: App, model: Form) -> anyhow::Result<()>
     println!("\tcompute units           = {:.04}",  app.compute_units(state.solution.len()));
     println!("\teffective grid spacing  = {:.04}a", solver.effective_resolution(&mesh));
     println!("\tsink radius / grid cell = {:.04}",  solver.sink_radius / solver.effective_resolution(&mesh));
+    println!("\ttotal tracers           = {:.04}",  state.total_tracers());
     println!();
 
 
