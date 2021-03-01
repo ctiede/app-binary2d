@@ -46,6 +46,7 @@ if __name__ == "__main__":
     parser.add_argument("filenames", nargs='+')
     parser.add_argument('--range', default='None,None', help='vmin and vmax parameters for the relief plot')
     parser.add_argument('--save', '-s', action='store_true')
+    parser.add_argument('--radius', '-r', type=float, default=None)
     args = parser.parse_args()
 
     vmin, vmax = eval(args.range)
@@ -54,8 +55,13 @@ if __name__ == "__main__":
         fig = plt.figure()
         ax1 = fig.add_subplot(1, 1, 1)
         rho = conserved(filename, 0)
-        ax1.imshow(np.log10(rho).T, cmap='inferno', origin='lower', extent=extent(filename), vmin=vmin, vmax=vmax)
-        # plt.colorbar()
+        c = ax1.imshow(np.log10(rho).T, cmap='inferno', origin='lower', extent=extent(filename), vmin=vmin, vmax=vmax)
+        plt.colorbar(c)
+        
+        if args.radius is not None:
+            plt.xlim([-args.radius, args.radius])
+            plt.ylim([-args.radius, args.radius])
+
         if args.save is True:
             num = int(filename.split('.')[1])
             plt.savefig('plot.{:04d}.png'.format(num))
