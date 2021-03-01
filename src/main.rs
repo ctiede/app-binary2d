@@ -106,7 +106,7 @@ fn main() -> anyhow::Result<()>
         .item("sink_rate"       , 10.0   , "Sink rate to model accretion [Omega]")
         .item("softening_length", 0.05   , "Gravitational softening length [a]")
         .item("tfinal"          , 0.0    , "Time at which to stop the simulation [Orbits]")
-        .item("toi"             , 1e3    , "Tracer output interval [Orbits]")
+        .item("toi"             , 1.0    , "Tracer output interval [Orbits]")
         .item("tor"             , 1.0    , "Tracer output ratio")
         .item("tsi"             , 0.1    , "Time series interval [Orbits]")
         .merge_value_map_freezing(&app.restart_model_parameters()?, &parameters_not_to_supercede_on_restart)?
@@ -442,7 +442,7 @@ impl Tasks
         if state.time >= self.write_checkpoint.next_time {
             self.write_checkpoint(state, time_series, block_data, model, app)?;
         }
-        if state.time / ORBITAL_PERIOD >= self.write_tracer_output.next_time
+        if state.time / ORBITAL_PERIOD >= self.write_tracer_output.next_time && state.total_tracers() > 0
         {
             self.write_tracer_output(state, hydro, block_data, solver, mesh, model, state.time, app)?;
         }
